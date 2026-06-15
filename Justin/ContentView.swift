@@ -9,13 +9,8 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        // Temporary: show player for simulator testing. Revert to real root nav when building tabs.
+        KenBurnsPlayerView()
     }
 }
 
