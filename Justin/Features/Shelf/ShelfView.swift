@@ -7,6 +7,10 @@ struct ShelfView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
 
+                Text("Your shelf")
+                    .font(.system(.title2).weight(.semibold))
+                    .padding(.bottom, 4)
+
                 // MARK: Ready for you now
                 sectionHeader("Ready for you now")
                 Button { showPlayer = true } label: {
@@ -92,7 +96,10 @@ struct ShelfView: View {
             .padding(.bottom, 32)
         }
         .navigationTitle("Your shelf")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { Wordmark() }
+        }
         .fullScreenCover(isPresented: $showPlayer) {
             KenBurnsPlayerView()
                 .overlay(alignment: .topLeading) {

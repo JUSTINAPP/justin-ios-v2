@@ -6,6 +6,14 @@ struct ProfileView: View {
 
     var body: some View {
         List {
+            Section {
+                Text("Profile")
+                    .font(.system(.title2).weight(.semibold))
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listSectionSeparator(.hidden)
+
             // Profile header
             Section {
                 HStack(spacing: 14) {
@@ -47,7 +55,10 @@ struct ProfileView: View {
             }
         }
         .navigationTitle("Profile")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { Wordmark() }
+        }
     }
 }
 

@@ -16,6 +16,12 @@ struct GivingView: View {
 
             ScrollView {
                 VStack(spacing: 12) {
+                    Text("Giving")
+                        .font(.system(.title2).weight(.semibold))
+                        .foregroundColor(.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 4)
+
                     ForEach(gifts, id: \.name) { gift in
                         NavigationLink(destination: GiftDetailView(recipientName: gift.name)) {
                             giftCard(gift)
@@ -47,9 +53,12 @@ struct GivingView: View {
             .padding(.bottom, 20)
         }
         .navigationTitle("Giving")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.cream, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) { Wordmark() }
+        }
         .fullScreenCover(isPresented: $showRecord) {
             RecordFlowView()
         }

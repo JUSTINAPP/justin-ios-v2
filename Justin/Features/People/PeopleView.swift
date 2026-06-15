@@ -18,6 +18,11 @@ struct PeopleView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
+                Text("People")
+                    .font(.system(.title2).weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 4)
+
                 ForEach(people) { person in
                     personRow(person)
                 }
@@ -27,7 +32,10 @@ struct PeopleView: View {
             .padding(.bottom, 32)
         }
         .navigationTitle("People")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { Wordmark() }
+        }
     }
 
     private func personRow(_ person: PersonEntry) -> some View {
