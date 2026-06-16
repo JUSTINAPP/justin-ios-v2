@@ -2,17 +2,19 @@ import Foundation
 
 struct Person: Codable, Identifiable {
     let id: UUID
+    var displayName: String?
     let phone: String
+    let authId: UUID?
     let isVerified: Bool
-    let displayName: String?
     let avatarUrl: String?
     let avatarColor: String?
 
     enum CodingKeys: String, CodingKey {
         case id
-        case phone
-        case isVerified = "is_verified"
         case displayName = "display_name"
+        case phone
+        case authId = "auth_id"
+        case isVerified = "is_verified"
         case avatarUrl = "avatar_url"
         case avatarColor = "avatar_color"
     }
