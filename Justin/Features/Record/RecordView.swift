@@ -40,7 +40,6 @@ struct RecordStep1WhoView: View {
 
     @State private var showNewPersonField = false
     @State private var newPersonName = ""
-    @State private var newPersonPhone = ""
     @FocusState private var fieldFocused: Bool
 
     private let people = ["Mum", "Em", "Jordan"]
@@ -60,7 +59,6 @@ struct RecordStep1WhoView: View {
                         model.recipientPhone = ""
                         withAnimation(.spring(duration: 0.3)) { showNewPersonField = false }
                         newPersonName = ""
-                        newPersonPhone = ""
                     } label: {
                         HStack(spacing: 14) {
                             InitialsAvatar(name: name, size: 40)
@@ -94,7 +92,6 @@ struct RecordStep1WhoView: View {
                     } else {
                         // Closing — clear new-person fields and reset state
                         newPersonName = ""
-                        newPersonPhone = ""
                         model.recipientPhone = ""
                         model.isNewRecipient = false
                         if !people.contains(model.recipientName) { model.recipientName = "" }
@@ -141,16 +138,7 @@ struct RecordStep1WhoView: View {
                             }
 
                         VStack(alignment: .leading, spacing: 5) {
-                            TextField("+1 555 000 0000", text: $newPersonPhone)
-                                .textFieldStyle(.plain)
-                                .font(.system(.body))
-                                .keyboardType(.phonePad)
-                                .padding(14)
-                                .background(Color(.systemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                                .onChange(of: newPersonPhone) { _, value in
-                                    model.recipientPhone = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                                }
+                            PhoneNumberField(normalised: $model.recipientPhone)
                             Text("Optional — helps your gift reach them when they join.")
                                 .font(.system(.caption))
                                 .foregroundColor(.secondary)
