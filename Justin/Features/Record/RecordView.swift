@@ -16,7 +16,8 @@ struct RecordFlowView: View {
                     case .voice:   RecordStep2VoiceView(path: $path)
                     case .photos:  RecordStep3PhotosView(path: $path)
                     case .when:    RecordStep4WhenView(path: $path)
-                    case .preview: RecordStep5PreviewView(onDone: { dismiss() })
+                    case .preview: RecordStep5PreviewView(path: $path, onDone: { dismiss() })
+                    case .invite:  InviteShareView(onDone: { dismiss() })
                     }
                 }
         }
@@ -26,7 +27,7 @@ struct RecordFlowView: View {
 
 // MARK: - Step identifier
 
-enum RecordStep: Hashable { case voice, photos, when, preview }
+enum RecordStep: Hashable { case voice, photos, when, preview, invite }
 
 // ─────────────────────────────────────────────
 // MARK: - Step 1: Who's it for?
@@ -39,6 +40,7 @@ struct RecordStep1WhoView: View {
 
     @State private var showNewPersonField = false
     @State private var newPersonName = ""
+    @State private var newPersonPhone = ""
     @FocusState private var fieldFocused: Bool
 
     private let people = ["Mum", "Em", "Jordan"]
@@ -54,8 +56,11 @@ struct RecordStep1WhoView: View {
                 ForEach(people, id: \.self) { name in
                     Button {
                         model.recipientName = name
+                        model.isNewRecipient = false
+                        model.recipientPhone = ""
                         withAnimation(.spring(duration: 0.3)) { showNewPersonField = false }
                         newPersonName = ""
+                        newPersonPhone = ""
                     } label: {
                         HStack(spacing: 14) {
                             InitialsAvatar(name: name, size: 40)
@@ -87,8 +92,11 @@ struct RecordStep1WhoView: View {
                         // Deselect any list person so the typed name is the only source
                         if people.contains(model.recipientName) { model.recipientName = "" }
                     } else {
-                        // Closing without a typed name — clear everything
+                        // Closing — clear new-person fields and reset state
                         newPersonName = ""
+                        newPersonPhone = ""
+                        model.recipientPhone = ""
+                        model.isNewRecipient = false
                         if !people.contains(model.recipientName) { model.recipientName = "" }
                     }
                 } label: {
@@ -118,17 +126,38 @@ struct RecordStep1WhoView: View {
                 .buttonStyle(.plain)
 
                 if showNewPersonField {
-                    TextField("Their name", text: $newPersonName)
-                        .textFieldStyle(.plain)
-                        .font(.system(.body))
-                        .padding(14)
-                        .background(Color(.systemFill))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .focused($fieldFocused)
-                        .onChange(of: newPersonName) { _, value in
-                            model.recipientName = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    VStack(spacing: 8) {
+                        TextField("Their name", text: $newPersonName)
+                            .textFieldStyle(.plain)
+                            .font(.system(.body))
+                            .padding(14)
+                            .background(Color(.systemFill))
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .focused($fieldFocused)
+                            .onChange(of: newPersonName) { _, value in
+                                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                                model.recipientName = trimmed
+                                model.isNewRecipient = !trimmed.isEmpty
+                            }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            TextField("+1 555 000 0000", text: $newPersonPhone)
+                                .textFieldStyle(.plain)
+                                .font(.system(.body))
+                                .keyboardType(.phonePad)
+                                .padding(14)
+                                .background(Color(.systemFill))
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .onChange(of: newPersonPhone) { _, value in
+                                    model.recipientPhone = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                                }
+                            Text("Optional — helps your gift reach them when they join.")
+                                .font(.system(.caption))
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 4)
                         }
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .onChange(of: showNewPersonField) { _, newValue in
@@ -296,37 +325,58 @@ struct RecordStep3PhotosView: View {
 struct RecordStep4WhenView: View {
     @Binding var path: NavigationPath
     @EnvironmentObject var model: RecordFlowModel
+    @State private var customFeeling = ""
+
+    private let feelingPresets = ["when you miss me", "when you can't sleep", "when it's a hard day"]
+
+    private var isStepComplete: Bool {
+        switch model.releaseType {
+        case .now, .date, .always: return true
+        case .feeling:             return !model.releaseFeeling.isEmpty
+        }
+    }
 
     var body: some View {
         StepShell(
             step: "4 of 5",
             title: "When does it open?",
+            isNextEnabled: isStepComplete,
             next: { path.append(RecordStep.preview) }
         ) {
             VStack(spacing: 10) {
-                ForEach([ReleaseType.now, .date, .feeling, .always], id: \.self) { type in
-                    releaseRow(type)
-                }
 
+                releaseRow(.now)
+
+                releaseRow(.date)
                 if model.releaseType == .date {
-                    DatePicker("Open on", selection: $model.releaseDate,
-                               in: Date()..., displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .padding(.top, 6)
+                    dateSection
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
+                releaseRow(.feeling)
                 if model.releaseType == .feeling {
-                    TextField("e.g. you can't sleep", text: $model.releaseFeeling)
-                        .textFieldStyle(.roundedBorder)
-                        .padding(.top, 6)
+                    feelingSection
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
+
+                releaseRow(.always)
+            }
+        }
+        .onAppear {
+            // Re-populate custom field if returning to this step with a non-preset feeling
+            if model.releaseType == .feeling && !feelingPresets.contains(model.releaseFeeling) {
+                customFeeling = model.releaseFeeling
             }
         }
     }
 
+    // MARK: - Release type row
+
     private func releaseRow(_ type: ReleaseType) -> some View {
         let selected = model.releaseType == type
-        return Button { model.releaseType = type } label: {
+        return Button {
+            withAnimation(.spring(duration: 0.3)) { model.releaseType = type }
+        } label: {
             HStack(spacing: 14) {
                 Image(systemName: type.icon)
                     .foregroundColor(selected ? .brandPurple : .secondary)
@@ -350,6 +400,106 @@ struct RecordStep4WhenView: View {
         }
         .buttonStyle(.plain)
     }
+
+    // MARK: - Date section
+
+    private var dateSection: some View {
+        VStack(spacing: 10) {
+            DatePicker(
+                "Open on",
+                selection: $model.releaseDate,
+                in: Date()...,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.compact)
+            .tint(.brandPurple)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(.systemFill))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+
+            Toggle(isOn: $model.hiddenUntilRelease) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Hide until the day")
+                        .font(.system(.body).weight(.medium))
+                    Text("A surprise — they won't know it's coming")
+                        .font(.system(.caption))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .tint(.brandPurple)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(.systemFill))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    // MARK: - Feeling section
+
+    private var feelingSection: some View {
+        VStack(spacing: 8) {
+            ForEach(feelingPresets, id: \.self) { preset in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        model.releaseFeeling = preset
+                        customFeeling = ""
+                    }
+                } label: {
+                    HStack {
+                        Text(preset)
+                            .font(.system(.body))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if model.releaseFeeling == preset {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.brandPurple)
+                        }
+                    }
+                    .padding(14)
+                    .background(
+                        model.releaseFeeling == preset
+                            ? Color.brandPurple.opacity(0.09)
+                            : Color(.systemFill)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Custom feeling
+            HStack(spacing: 8) {
+                TextField("or write your own...", text: $customFeeling)
+                    .textFieldStyle(.plain)
+                    .font(.system(.body))
+                    .onChange(of: customFeeling) { _, value in
+                        model.releaseFeeling = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                if !customFeeling.isEmpty {
+                    Button {
+                        customFeeling = ""
+                        model.releaseFeeling = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(Color(.tertiaryLabel))
+                    }
+                }
+            }
+            .padding(14)
+            .background(
+                !customFeeling.isEmpty
+                    ? Color.brandPurple.opacity(0.09)
+                    : Color(.systemFill)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                if !customFeeling.isEmpty {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.brandPurple.opacity(0.3), lineWidth: 1)
+                }
+            }
+        }
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -357,9 +507,27 @@ struct RecordStep4WhenView: View {
 // ─────────────────────────────────────────────
 
 struct RecordStep5PreviewView: View {
+    @Binding var path: NavigationPath
     let onDone: () -> Void
     @EnvironmentObject var model: RecordFlowModel
     @StateObject private var player = AudioPlayer()
+
+    private var releaseDescription: String {
+        switch model.releaseType {
+        case .now:
+            return "Opens right away"
+        case .date:
+            let f = DateFormatter()
+            f.dateStyle = .medium
+            f.timeStyle = .none
+            let dateStr = f.string(from: model.releaseDate)
+            return model.hiddenUntilRelease ? "Opens \(dateStr) · A surprise" : "Opens \(dateStr)"
+        case .feeling:
+            return model.releaseFeeling.isEmpty ? "Opens when the moment is right" : "Opens \(model.releaseFeeling)"
+        case .always:
+            return "Always there for them"
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -395,7 +563,12 @@ struct RecordStep5PreviewView: View {
                 Text("For \(model.recipientName)")
                     .font(.system(.subheadline).weight(.medium))
                     .foregroundColor(.white.opacity(0.7))
-                    .padding(.bottom, 4)
+                    .padding(.bottom, 2)
+
+                Text(releaseDescription)
+                    .font(.system(.caption).weight(.medium))
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.bottom, 16)
 
                 Button { player.playPause() } label: {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -423,9 +596,14 @@ struct RecordStep5PreviewView: View {
 
                 Button {
                     player.stop()
-                    // TODO: Upload audio + photos to Supabase Storage,
-                    //       insert record into messages table, link to gift
-                    onDone()
+                    // TODO(supabase): upload audio + photos to Storage, insert message row,
+                    //                 link to gift record before branching below
+                    if model.isNewRecipient {
+                        path.append(RecordStep.invite)
+                    } else {
+                        // Existing circle member — gift lands on their shelf directly
+                        onDone()
+                    }
                 } label: {
                     Text("Add to gift")
                         .font(.system(.body).weight(.semibold))

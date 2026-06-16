@@ -2,8 +2,6 @@ import SwiftUI
 
 struct ProfileView: View {
 
-    private let settingsRows = ["Account", "Notifications", "Safety & privacy"]
-
     var body: some View {
         List {
             Section {
@@ -33,15 +31,14 @@ struct ProfileView: View {
 
             // Settings rows
             Section {
-                ForEach(settingsRows, id: \.self) { row in
-                    HStack {
-                        Text(row)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 2)
+                NavigationLink(destination: AccountView()) {
+                    Text("Account")
+                }
+                NavigationLink(destination: NotificationsView()) {
+                    Text("Notifications")
+                }
+                NavigationLink(destination: SafetyPrivacyView()) {
+                    Text("Safety & privacy")
                 }
             }
 
@@ -56,6 +53,7 @@ struct ProfileView: View {
         }
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .scrollClearance()
         .toolbar {
             ToolbarItem(placement: .principal) { Wordmark() }
         }
