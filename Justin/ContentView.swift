@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var auth: AuthService
+    // TODO: move hasSeenIntro flag to user profile backend once available
+    @AppStorage("hasSeenIntro") private var hasSeenIntro = false
 
     var body: some View {
         Group {
@@ -9,7 +11,11 @@ struct ContentView: View {
             case .loading:
                 Color(.systemBackground).ignoresSafeArea()
             case .signedIn:
-                MainTabView()
+                if hasSeenIntro {
+                    MainTabView()
+                } else {
+                    IntroView(onDone: { hasSeenIntro = true })
+                }
             default:
                 OnboardingView()
             }

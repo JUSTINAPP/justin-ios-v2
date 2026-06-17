@@ -64,10 +64,16 @@ final class AuthService: ObservableObject {
     }
 
     func saveName(_ name: String) async {
-        guard let userId = pendingUserId, let phone = pendingPhone else { return }
+        guard let userId = pendingUserId, let phone = pendingPhone else {
+            print("[Name] saveName called but pendingUserId=\(String(describing: pendingUserId)) pendingPhone=\(String(describing: pendingPhone))")
+            return
+        }
         clearError()
         isLoading = true
         defer { isLoading = false }
+        print("[Name] saving name '\(name)' for user: \(String(describing: supabase.auth.currentUser?.id))")
+        print("[Name] pendingUserId: \(userId)  pendingPhone: \(phone)")
+        print("[Name] operation: INSERT into people")
         do {
             let insert = PersonInsert(id: userId, displayName: name, phone: phone, authId: userId)
             let person: Person = try await supabase
@@ -77,11 +83,20 @@ final class AuthService: ObservableObject {
                 .single()
                 .execute()
                 .value
+            print("[Name] save succeeded — person id: \(person.id)")
             currentPerson = person
             pendingUserId = nil
             pendingPhone = nil
             state = .signedIn
         } catch {
+            print("[Name] save failed: \(error)")
+            print("[Name] localizedDescription: \(error.localizedDescription)")
+            if let pgErr = error as? PostgrestError {
+                print("[Name] PostgrestError — code: \(pgErr.code ?? "nil")")
+                print("[Name] PostgrestError — message: \(pgErr.message)")
+                print("[Name] PostgrestError — detail: \(pgErr.detail ?? "nil")")
+                print("[Name] PostgrestError — hint: \(pgErr.hint ?? "nil")")
+            }
             errorMessage = "Couldn't save your name. Please try again."
         }
     }

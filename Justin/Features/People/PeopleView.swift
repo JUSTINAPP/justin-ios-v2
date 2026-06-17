@@ -1,71 +1,122 @@
 import SwiftUI
 
 // Navigation destinations within the People tab.
-// Private to this file — all navigation is handled via navigationDestination below.
 private enum PeopleNavDest: Hashable {
-    case detail(String)       // → PersonDetailView
-    case receivedGift(String) // → ReceivedGiftDetailView
-    case givingGift(String)   // → GiftDetailView
+    case detail(name: String)
+    case receivedGift(name: String)
+    case givingGift(giftId: UUID?, name: String)
 }
 
 struct PeopleView: View {
-
-    private struct PersonEntry: Identifiable {
-        var id: String { name }
-        let name: String
-        let receiving: Bool
-        let giving: Bool
-    }
-
-    private let people: [PersonEntry] = [
-        PersonEntry(name: "Mum",    receiving: true,  giving: true),
-        PersonEntry(name: "Em",     receiving: false, giving: true),
-        PersonEntry(name: "Jordan", receiving: false, giving: true),
-    ]
+    @EnvironmentObject var auth: AuthService
+    @StateObject private var viewModel = PeopleViewModel()
+    @State private var showRecord = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 10) {
-                Text("People")
-                    .font(.system(.title2).weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 4)
+        Group {
+            if viewModel.isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !viewModel.people.isEmpty {
+                ScrollView {
+                    VStack(spacing: 10) {
+                        Text("People")
+                            .font(.system(.title2).weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 4)
 
-                ForEach(people) { person in
-                    personRow(person)
+                        ForEach(viewModel.people) { person in
+                            personRow(person)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                }
+                .scrollClearance()
+            } else {
+                ZStack {
+                    peopleGhost
+                    EmptyState(
+                        illustration: "illus-waving-hand",
+                        heading: "Your people will appear here.",
+                        message: "Add the people you love, and keep the moments that matter to them close.",
+                        actionLabel: "Add someone",
+                        action: { showRecord = true }
+                    )
+                    .padding(.horizontal, 20)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 8)
         }
-        .scrollClearance()
         .navigationTitle("People")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { Wordmark() }
         }
-        // Single destination handler for the whole tab stack
         .navigationDestination(for: PeopleNavDest.self) { dest in
             switch dest {
             case .detail(let name):
                 PersonDetailView(name: name)
             case .receivedGift(let name):
                 ReceivedGiftDetailView(fromName: name)
-            case .givingGift(let name):
-                GiftDetailView(recipientName: name)
+            case .givingGift(let giftId, let name):
+                GiftDetailView(giftId: giftId, recipientName: name)
             }
         }
+        .fullScreenCover(isPresented: $showRecord) {
+            RecordFlowView()
+        }
+        .onAppear {
+            guard let id = auth.currentPerson?.id else { return }
+            Task { await viewModel.fetch(currentPersonId: id) }
+        }
+    }
+
+    // MARK: - Ghost background (empty state only)
+
+    private var peopleGhost: some View {
+        VStack(spacing: 18) {
+            ForEach(0..<4, id: \.self) { _ in
+                HStack(spacing: 14) {
+                    Circle()
+                        .fill(Color.brandPurple)
+                        .frame(width: 48, height: 48)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.primary)
+                            .frame(width: 88, height: 13)
+                        HStack(spacing: 6) {
+                            Capsule()
+                                .fill(Color.brandPurple)
+                                .frame(width: 90, height: 20)
+                            Capsule()
+                                .fill(Color.brandRose)
+                                .frame(width: 90, height: 20)
+                        }
+                    }
+
+                    Spacer()
+                }
+                .padding(14)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .opacity(0.09)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Person row
 
     @ViewBuilder
-    private func personRow(_ person: PersonEntry) -> some View {
-        // Outer NavigationLink: tapping the card (excluding tags) → PersonDetailView.
+    private func personRow(_ person: PeopleEntry) -> some View {
+        // Outer NavigationLink: tapping the card → PersonDetailView.
         // Inner NavigationLink tags: SwiftUI hit-tests to the innermost tappable view,
-        // so tapping a tag fires the tag's link only, not the card's link.
-        NavigationLink(value: PeopleNavDest.detail(person.name)) {
+        // so tapping a tag fires only the tag's link, not the card's link.
+        NavigationLink(value: PeopleNavDest.detail(name: person.name)) {
             HStack(spacing: 14) {
                 InitialsAvatar(name: person.name, size: 48)
 
@@ -75,16 +126,19 @@ struct PeopleView: View {
                         .foregroundColor(.primary)
 
                     HStack(spacing: 6) {
-                        if person.receiving {
-                            NavigationLink(value: PeopleNavDest.receivedGift(person.name)) {
+                        if person.isReceiving {
+                            NavigationLink(value: PeopleNavDest.receivedGift(name: person.name)) {
                                 relationshipTag("their gift to you",
                                                systemImage: "arrow.down",
                                                color: .brandPurple)
                             }
                             .buttonStyle(.plain)
                         }
-                        if person.giving {
-                            NavigationLink(value: PeopleNavDest.givingGift(person.name)) {
+                        if person.isGiving {
+                            NavigationLink(value: PeopleNavDest.givingGift(
+                                giftId: person.givingGiftId,
+                                name: person.name
+                            )) {
                                 relationshipTag("your gift to them",
                                                systemImage: "arrow.up",
                                                color: .brandRose)
@@ -123,4 +177,5 @@ struct PeopleView: View {
 
 #Preview {
     NavigationStack { PeopleView() }
+        .environmentObject(AuthService())
 }

@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ProfileView: View {
+    @EnvironmentObject var auth: AuthService
+    @State private var showSignOutConfirm = false
 
     var body: some View {
         List {
@@ -15,13 +17,15 @@ struct ProfileView: View {
             // Profile header
             Section {
                 HStack(spacing: 14) {
-                    InitialsAvatar(name: "Jonas", size: 60)
+                    InitialsAvatar(name: auth.currentPerson?.displayName ?? "You", size: 60)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Jonas")
+                        Text(auth.currentPerson?.displayName ?? "You")
                             .font(.title3.weight(.semibold))
-                        Text("+1 555 123 4567")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        if let phone = auth.currentPerson?.phone {
+                            Text(phone)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 .padding(.vertical, 6)
@@ -42,10 +46,10 @@ struct ProfileView: View {
                 }
             }
 
-            // Sign out — destructive, no chevron
+            // Sign out — destructive, confirmation required
             Section {
                 Button(role: .destructive) {
-                    // no-op for now
+                    showSignOutConfirm = true
                 } label: {
                     Text("Sign out")
                 }
@@ -57,9 +61,18 @@ struct ProfileView: View {
         .toolbar {
             ToolbarItem(placement: .principal) { Wordmark() }
         }
+        .alert("Sign out?", isPresented: $showSignOutConfirm) {
+            Button("Sign out", role: .destructive) {
+                Task { await auth.signOut() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll need your phone number to sign back in.")
+        }
     }
 }
 
 #Preview {
     NavigationStack { ProfileView() }
+        .environmentObject(AuthService())
 }

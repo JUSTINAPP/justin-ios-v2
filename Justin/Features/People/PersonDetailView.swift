@@ -194,7 +194,7 @@ struct PersonDetailView: View {
                 Label("Their gift to you", systemImage: "arrow.down.circle")
                     .foregroundColor(.brandPurple)
             }
-            NavigationLink(destination: GiftDetailView(recipientName: name)) {
+            NavigationLink(destination: GiftDetailView(giftId: nil, recipientName: name)) {
                 Label("Your gift to them", systemImage: "arrow.up.circle")
                     .foregroundColor(.brandRose)
             }
