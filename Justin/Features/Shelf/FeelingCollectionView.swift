@@ -40,20 +40,12 @@ struct FeelingCollectionView: View {
         }
         .navigationTitle("Open when \(feeling.label)")
         .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(item: $selectedMessage) { _ in
-            KenBurnsPlayerView()
-                .overlay(alignment: .topLeading) {
-                    Button { selectedMessage = nil } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(11)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                    }
-                    .padding(.top, 56)
-                    .padding(.leading, 20)
-                }
+        .fullScreenCover(item: $selectedMessage) { msg in
+            KenBurnsPlayerView(
+                voicePath: msg.shelfItem?.message.voiceUrl,
+                photoPaths: msg.shelfItem?.message.photoUrls ?? [],
+                fromName: msg.from
+            )
         }
     }
 }

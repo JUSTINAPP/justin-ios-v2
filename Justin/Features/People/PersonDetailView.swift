@@ -2,7 +2,8 @@ import SwiftUI
 import PhotosUI
 
 struct PersonDetailView: View {
-    let name: String
+    let person: PeopleEntry
+    private var name: String { person.name }
 
     // Local placeholder model — mirrors Occasion (Core/Models/Occasion.swift).
     // Replace with Occasion when Supabase is wired; personId will be the real UUID
@@ -190,11 +191,11 @@ struct PersonDetailView: View {
 
     private var giftsSection: some View {
         Section {
-            NavigationLink(destination: ReceivedGiftDetailView(fromName: name)) {
+            NavigationLink(destination: ReceivedGiftDetailView(giftId: person.receivingGiftId, fromName: name)) {
                 Label("Their gift to you", systemImage: "arrow.down.circle")
                     .foregroundColor(.brandPurple)
             }
-            NavigationLink(destination: GiftDetailView(giftId: nil, recipientName: name)) {
+            NavigationLink(destination: GiftDetailView(giftId: person.givingGiftId, recipientName: name)) {
                 Label("Your gift to them", systemImage: "arrow.up.circle")
                     .foregroundColor(.brandRose)
             }
@@ -205,5 +206,7 @@ struct PersonDetailView: View {
 }
 
 #Preview {
-    NavigationStack { PersonDetailView(name: "Em") }
+    NavigationStack {
+        PersonDetailView(person: PeopleEntry(id: UUID(), name: "Em"))
+    }
 }

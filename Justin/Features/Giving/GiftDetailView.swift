@@ -10,6 +10,7 @@ struct GiftDetailView: View {
     @State private var showRecord = false
     @State private var messageToDelete: Message?
     @State private var showDeleteConfirm = false
+    @State private var playingMessage: Message? = nil
 
     var body: some View {
         ZStack {
@@ -43,6 +44,13 @@ struct GiftDetailView: View {
         }
         .fullScreenCover(isPresented: $showRecord) {
             RecordFlowView()
+        }
+        .fullScreenCover(item: $playingMessage) { msg in
+            KenBurnsPlayerView(
+                voicePath: msg.voiceUrl,
+                photoPaths: msg.photoUrls,
+                fromName: ""
+            )
         }
         .task { await loadMessages() }
         .onChange(of: showRecord) { _, newValue in
@@ -152,46 +160,58 @@ struct GiftDetailView: View {
     // MARK: - Message row
 
     private func messageRow(_ message: Message) -> some View {
-        // TODO(storage): when voice_url is non-nil, wrap in a Button that opens KenBurnsPlayerView
-        HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(message.opened ? Color.brandPurple.opacity(0.25) : Color(.systemFill))
-                .frame(width: 10, height: 10)
-                .padding(.top, 5)
+        Button {
+            guard message.voiceUrl != nil else { return }
+            playingMessage = message
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Circle()
+                    .fill(message.opened ? Color.brandPurple.opacity(0.25) : Color(.systemFill))
+                    .frame(width: 10, height: 10)
+                    .padding(.top, 5)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .top) {
-                    Text(releaseHeading(message))
-                        .font(.system(.body).weight(.medium))
-                        .foregroundColor(.ink)
-                    Spacer()
-                    if message.opened {
-                        Label("Opened", systemImage: "checkmark")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color.ink.opacity(0.35))
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .top) {
+                        Text(releaseHeading(message))
+                            .font(.system(.body).weight(.medium))
+                            .foregroundColor(.ink)
+                        Spacer()
+                        if message.opened {
+                            Label("Opened", systemImage: "checkmark")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(Color.ink.opacity(0.35))
+                        }
+                    }
+
+                    Text(releaseDetail(message))
+                        .font(.system(.caption))
+                        .foregroundColor(Color.ink.opacity(0.45))
+
+                    HStack(spacing: 4) {
+                        if message.opened {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.brandPurple)
+                        }
+                        Text(statusLabel(message))
+                            .font(.system(.caption).weight(.medium))
+                            .foregroundColor(message.opened ? .brandPurple : Color.ink.opacity(0.4))
                     }
                 }
 
-                Text(releaseDetail(message))
-                    .font(.system(.caption))
-                    .foregroundColor(Color.ink.opacity(0.45))
-
-                HStack(spacing: 4) {
-                    if message.opened {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.brandPurple)
-                    }
-                    Text(statusLabel(message))
-                        .font(.system(.caption).weight(.medium))
-                        .foregroundColor(message.opened ? .brandPurple : Color.ink.opacity(0.4))
+                if message.voiceUrl != nil {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.brandPurple.opacity(0.7))
+                        .padding(.top, 2)
                 }
             }
+            .padding(14)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: .black.opacity(0.04), radius: 4, x: 0, y: 2)
         }
-        .padding(14)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.04), radius: 4, x: 0, y: 2)
+        .buttonStyle(.plain)
     }
 
     // MARK: - Display helpers
@@ -251,7 +271,7 @@ struct GiftDetailView: View {
                 .execute()
                 .value
             messages = rows
-            print("[GiftDetail] loaded \(rows.count) messages for gift \(giftId)")
+            print("[GiftDetail] loaded \(rows.count) real messages, first voicePath: \(rows.first?.voiceUrl ?? "nil")")
         } catch {
             print("[GiftDetail] fetch failed: \(error)")
         }

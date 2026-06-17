@@ -37,12 +37,12 @@ struct RecordStep1WhoView: View {
     @Binding var path: NavigationPath
     let onCancel: () -> Void
     @EnvironmentObject var model: RecordFlowModel
+    @EnvironmentObject var auth: AuthService
 
+    @StateObject private var peopleVM = PeopleViewModel()
     @State private var showNewPersonField = false
     @State private var newPersonName = ""
     @FocusState private var fieldFocused: Bool
-
-    private let people = ["Mum", "Em", "Jordan"]
 
     var body: some View {
         StepShell(
@@ -52,28 +52,35 @@ struct RecordStep1WhoView: View {
             next: { path.append(RecordStep.voice) }
         ) {
             VStack(spacing: 10) {
-                ForEach(people, id: \.self) { name in
+                if peopleVM.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+
+                ForEach(peopleVM.people) { person in
                     Button {
-                        model.recipientName = name
+                        model.recipientName = person.name
+                        model.recipientPersonId = person.id
                         model.isNewRecipient = false
                         model.recipientPhone = ""
                         withAnimation(.spring(duration: 0.3)) { showNewPersonField = false }
                         newPersonName = ""
                     } label: {
                         HStack(spacing: 14) {
-                            InitialsAvatar(name: name, size: 40)
-                            Text(name)
+                            InitialsAvatar(name: person.name, size: 40)
+                            Text(person.name)
                                 .font(.system(.body).weight(.medium))
                                 .foregroundColor(.primary)
                             Spacer()
-                            if model.recipientName == name && !showNewPersonField {
+                            if model.recipientPersonId == person.id && !showNewPersonField {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.brandPurple)
                             }
                         }
                         .padding(14)
                         .background(
-                            model.recipientName == name && !showNewPersonField
+                            model.recipientPersonId == person.id && !showNewPersonField
                                 ? Color.brandPurple.opacity(0.09)
                                 : Color(.systemFill)
                         )
@@ -87,14 +94,18 @@ struct RecordStep1WhoView: View {
                     let opening = !showNewPersonField
                     withAnimation(.spring(duration: 0.3)) { showNewPersonField = opening }
                     if opening {
-                        // Deselect any list person so the typed name is the only source
-                        if people.contains(model.recipientName) { model.recipientName = "" }
+                        // Always clear any existing selection — the typed name is the only source
+                        model.recipientName = ""
+                        model.recipientPersonId = nil
+                        model.isNewRecipient = false
+                        newPersonName = ""
                     } else {
-                        // Closing — clear new-person fields and reset state
+                        // Closing — clear new-person fields and deselect
                         newPersonName = ""
                         model.recipientPhone = ""
+                        model.recipientName = ""
+                        model.recipientPersonId = nil
                         model.isNewRecipient = false
-                        if !people.contains(model.recipientName) { model.recipientName = "" }
                     }
                 } label: {
                     HStack(spacing: 14) {
@@ -134,6 +145,7 @@ struct RecordStep1WhoView: View {
                             .onChange(of: newPersonName) { _, value in
                                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                                 model.recipientName = trimmed
+                                model.recipientPersonId = nil   // never carry an existing person's id into a new-person save
                                 model.isNewRecipient = !trimmed.isEmpty
                             }
 
@@ -157,6 +169,10 @@ struct RecordStep1WhoView: View {
                 Button("Cancel") { onCancel() }.foregroundColor(.secondary)
             }
         }
+        .onAppear {
+            guard let id = auth.currentPerson?.id else { return }
+            Task { await peopleVM.fetch(currentPersonId: id) }
+        }
     }
 }
 
@@ -177,6 +193,7 @@ struct RecordStep2VoiceView: View {
             next: { path.append(RecordStep.photos) }
         ) {
             VStack(spacing: 28) {
+                Spacer(minLength: 0)
                 Text(recorder.elapsedSeconds.asTimeCode)
                     .font(.system(size: 52, weight: .thin, design: .monospaced))
                     .foregroundColor(recorder.recordState == .recording ? .primary : .secondary)
@@ -225,6 +242,7 @@ struct RecordStep2VoiceView: View {
                     .foregroundColor(.secondary)
                 }
             }
+            .frame(maxWidth: .infinity)
         }
     }
 }
@@ -501,6 +519,7 @@ struct RecordStep5PreviewView: View {
     @EnvironmentObject var auth: AuthService
     @StateObject private var player = AudioPlayer()
     @State private var isSaving = false
+    @State private var saveError: String? = nil
 
     private var releaseDescription: String {
         switch model.releaseType {
@@ -521,25 +540,11 @@ struct RecordStep5PreviewView: View {
 
     var body: some View {
         ZStack {
-            if model.hasPhotos {
-                // TODO: Replace with KenBurnsPlayerView once it accepts UIImage input
-                TabView {
-                    ForEach(model.selectedImages.indices, id: \.self) { i in
-                        Image(uiImage: model.selectedImages[i])
-                            .resizable()
-                            .scaledToFill()
-                            .clipped()
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .automatic))
+            // Ken Burns background — uses the user's actual selected photos
+            // (or gradient if none selected). Controls are hidden; audio is
+            // managed by this view's own AudioPlayer below.
+            KenBurnsPlayerView(localImages: model.selectedImages, showControls: false)
                 .ignoresSafeArea()
-            } else {
-                LinearGradient(
-                    colors: [.brandPurple, .brandDeep],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-            }
 
             LinearGradient(
                 colors: [.clear, .black.opacity(0.65)],
@@ -590,7 +595,12 @@ struct RecordStep5PreviewView: View {
                 } label: {
                     Group {
                         if isSaving {
-                            ProgressView().tint(.white)
+                            HStack(spacing: 8) {
+                                ProgressView().tint(.white)
+                                Text("Uploading\u{2026}")
+                                    .font(.system(.body).weight(.semibold))
+                                    .foregroundColor(.white)
+                            }
                         } else {
                             Text("Add to gift")
                                 .font(.system(.body).weight(.semibold))
@@ -618,12 +628,16 @@ struct RecordStep5PreviewView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear { if let url = model.audioURL { player.load(url: url) } }
         .onDisappear { player.stop() }
+        .alert("Couldn't save", isPresented: Binding(get: { saveError != nil }, set: { _ in saveError = nil })) {
+            Button("OK") {}
+        } message: {
+            Text(saveError ?? "")
+        }
     }
 
     private func saveAndFinish() async {
         guard let authorId = auth.currentPerson?.id else {
             print("[Save] error: no authenticated person — cannot save gift")
-            // Still branch so the user isn't stuck in the flow
             branch()
             return
         }
@@ -631,11 +645,11 @@ struct RecordStep5PreviewView: View {
         defer { isSaving = false }
         do {
             try await GiftSaveService().save(model: model, authorId: authorId)
+            branch()
         } catch {
             print("[Save] gift save failed: \(error)")
-            print("[Save] localizedDescription: \(error.localizedDescription)")
+            saveError = "Couldn't upload your message. Please check your connection and try again."
         }
-        branch()
     }
 
     private func branch() {

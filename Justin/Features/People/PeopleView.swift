@@ -2,8 +2,8 @@ import SwiftUI
 
 // Navigation destinations within the People tab.
 private enum PeopleNavDest: Hashable {
-    case detail(name: String)
-    case receivedGift(name: String)
+    case detail(PeopleEntry)
+    case receivedGift(giftId: UUID?, name: String)
     case givingGift(giftId: UUID?, name: String)
 }
 
@@ -55,10 +55,10 @@ struct PeopleView: View {
         }
         .navigationDestination(for: PeopleNavDest.self) { dest in
             switch dest {
-            case .detail(let name):
-                PersonDetailView(name: name)
-            case .receivedGift(let name):
-                ReceivedGiftDetailView(fromName: name)
+            case .detail(let person):
+                PersonDetailView(person: person)
+            case .receivedGift(let giftId, let name):
+                ReceivedGiftDetailView(giftId: giftId, fromName: name)
             case .givingGift(let giftId, let name):
                 GiftDetailView(giftId: giftId, recipientName: name)
             }
@@ -116,7 +116,7 @@ struct PeopleView: View {
         // Outer NavigationLink: tapping the card → PersonDetailView.
         // Inner NavigationLink tags: SwiftUI hit-tests to the innermost tappable view,
         // so tapping a tag fires only the tag's link, not the card's link.
-        NavigationLink(value: PeopleNavDest.detail(name: person.name)) {
+        NavigationLink(value: PeopleNavDest.detail(person)) {
             HStack(spacing: 14) {
                 InitialsAvatar(name: person.name, size: 48)
 
@@ -127,7 +127,7 @@ struct PeopleView: View {
 
                     HStack(spacing: 6) {
                         if person.isReceiving {
-                            NavigationLink(value: PeopleNavDest.receivedGift(name: person.name)) {
+                            NavigationLink(value: PeopleNavDest.receivedGift(giftId: person.receivingGiftId, name: person.name)) {
                                 relationshipTag("their gift to you",
                                                systemImage: "arrow.down",
                                                color: .brandPurple)

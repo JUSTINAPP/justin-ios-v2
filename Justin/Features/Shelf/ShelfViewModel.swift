@@ -96,7 +96,7 @@ final class ShelfViewModel: ObservableObject {
                 let label = message.releaseFeeling.flatMap { $0.isEmpty ? nil : $0 }
                     ?? "when the moment is right"
                 feelingBuckets[label, default: []].append(
-                    ShelfMessage(from: fromName, duration: "—")
+                    ShelfMessage(from: fromName, duration: "—", shelfItem: item)
                 )
 
             case .always:

@@ -69,12 +69,16 @@ struct InviteShareView: View {
                 // Done — dismisses the whole record flow back to the Giving tab
                 Button(action: onDone) {
                     Text("Done")
-                        .font(.system(.body))
-                        .foregroundColor(.secondary)
+                        .font(.system(.body).weight(.medium))
+                        .foregroundColor(.brandPurple)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Color(.systemFill))
+                        .background(Color.brandPurple.opacity(0.09))
                         .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(Color.brandPurple.opacity(0.2), lineWidth: 1)
+                        }
                 }
             }
             .padding(.horizontal, 28)

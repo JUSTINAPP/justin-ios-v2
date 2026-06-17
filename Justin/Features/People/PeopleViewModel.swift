@@ -4,14 +4,17 @@ import Combine
 
 // MARK: - Display model
 
-struct PeopleEntry: Identifiable {
+struct PeopleEntry: Identifiable, Hashable {
     let id: UUID
     let name: String
     var givingGiftId: UUID?    // gift the current user authored TO this person
     var receivingGiftId: UUID? // gift this person authored FOR the current user
 
-    var isGiving:   Bool { givingGiftId   != nil }
+    var isGiving:    Bool { givingGiftId    != nil }
     var isReceiving: Bool { receivingGiftId != nil }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
 }
 
 // MARK: - ViewModel

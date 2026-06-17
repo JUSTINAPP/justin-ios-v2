@@ -6,6 +6,10 @@ struct ShelfMessage: Identifiable, Hashable {
     let id = UUID()
     let from: String
     let duration: String
+    var shelfItem: ShelfItem? = nil  // carries real message ref for playback
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
 }
 
 struct ShelfFeeling: Identifiable, Hashable {
@@ -27,7 +31,7 @@ struct ShelfView: View {
     @EnvironmentObject var auth: AuthService
     @StateObject private var viewModel = ShelfViewModel()
 
-    @State private var showPlayer = false
+    @State private var currentlyPlaying: ShelfItem?
     @State private var singleFeelingMessage: ShelfMessage?
 
     var body: some View {
@@ -59,11 +63,19 @@ struct ShelfView: View {
         .navigationDestination(for: ShelfFeeling.self) { feeling in
             FeelingCollectionView(feeling: feeling)
         }
-        .fullScreenCover(isPresented: $showPlayer) {
-            playerOverlay { showPlayer = false }
+        .fullScreenCover(item: $currentlyPlaying) { item in
+            playerOverlay(
+                voicePath: item.message.voiceUrl,
+                photoPaths: item.message.photoUrls,
+                fromName: item.fromName
+            ) { currentlyPlaying = nil }
         }
-        .fullScreenCover(item: $singleFeelingMessage) { _ in
-            playerOverlay { singleFeelingMessage = nil }
+        .fullScreenCover(item: $singleFeelingMessage) { msg in
+            playerOverlay(
+                voicePath: msg.shelfItem?.message.voiceUrl,
+                photoPaths: msg.shelfItem?.message.photoUrls ?? [],
+                fromName: msg.from
+            ) { singleFeelingMessage = nil }
         }
         .onAppear {
             guard let id = auth.currentPerson?.id else { return }
@@ -121,7 +133,7 @@ struct ShelfView: View {
     private var readyNowCards: some View {
         VStack(spacing: 12) {
             ForEach(viewModel.sections.readyNow) { item in
-                Button { showPlayer = true } label: {
+                Button { currentlyPlaying = item } label: {
                     ZStack(alignment: .bottomLeading) {
                         DriftingGradient(colors: [.brandPurple, .brandRose])
 
@@ -213,7 +225,7 @@ struct ShelfView: View {
     private var alwaysHereCards: some View {
         VStack(spacing: 12) {
             ForEach(viewModel.sections.alwaysHere) { item in
-                Button { showPlayer = true } label: {
+                Button { currentlyPlaying = item } label: {
                     ZStack(alignment: .leading) {
                         DriftingGradient(colors: [.brandDeep, Color(hex: "261A4A")])
 
@@ -275,20 +287,8 @@ struct ShelfView: View {
     // MARK: - Player overlay
 
     @ViewBuilder
-    private func playerOverlay(onClose: @escaping () -> Void) -> some View {
-        KenBurnsPlayerView()
-            .overlay(alignment: .topLeading) {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(11)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
-                .padding(.top, 56)
-                .padding(.leading, 20)
-            }
+    private func playerOverlay(voicePath: String?, photoPaths: [String], fromName: String, onClose: @escaping () -> Void) -> some View {
+        KenBurnsPlayerView(voicePath: voicePath, photoPaths: photoPaths, fromName: fromName)
     }
 
     // MARK: - Ghost background (empty state only)
