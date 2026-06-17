@@ -485,13 +485,17 @@ struct AddPersonView: View {
             print("======= [AddPerson] step 3: person_overrides ownerId=\(owner.id) personId=\(resolvedId) =======")
             try await supabase
                 .from("person_overrides")
-                .upsert(PersonOverrideShape(
-                    ownerId: owner.id, personId: resolvedId,
-                    relationship: relationship.isEmpty ? nil : relationship,
-                    notes: notes.isEmpty ? nil : notes,
-                    avatarStoragePath: avatarPath
-                ))
+                .upsert(
+                    PersonOverrideShape(
+                        ownerId: owner.id, personId: resolvedId,
+                        relationship: relationship.isEmpty ? nil : relationship,
+                        notes: notes.isEmpty ? nil : notes,
+                        avatarStoragePath: avatarPath
+                    ),
+                    onConflict: "owner_id,person_id"
+                )
                 .execute()
+            print("[AddPerson] override upsert OK")
             print("======= [AddPerson] step 3 OK =======")
 
             print("======= [AddPerson] ALL SAVED =======")
@@ -560,16 +564,23 @@ struct AddPersonView: View {
                 avatarPath = path
             }
 
+            // onConflict tells PostgREST to UPDATE the existing row when (owner_id, person_id) already exists,
+            // rather than attempting an INSERT that would hit the unique constraint.
             try await supabase
                 .from("person_overrides")
-                .upsert(PersonOverrideShape(
-                    ownerId: owner.id, personId: pid,
-                    relationship: relationship.isEmpty ? nil : relationship,
-                    notes: notes.isEmpty ? nil : notes,
-                    avatarStoragePath: avatarPath
-                ))
+                .upsert(
+                    PersonOverrideShape(
+                        ownerId: owner.id, personId: pid,
+                        relationship: relationship.isEmpty ? nil : relationship,
+                        notes: notes.isEmpty ? nil : notes,
+                        avatarStoragePath: avatarPath
+                    ),
+                    onConflict: "owner_id,person_id"
+                )
                 .execute()
+            print("[AddPerson] override upsert OK")
 
+            // Delete-then-reinsert keeps occasions clean with no stale or duplicate rows.
             try await supabase
                 .from("occasions")
                 .delete()
@@ -590,8 +601,10 @@ struct AddPersonView: View {
             isPresented = false
 
         } catch {
-            print("[AddPerson] update failed: \(error)")
-            saveError = "Couldn't save. Please try again."
+            let msg = fmtError(error)
+            print("[AddPerson] update failed: \(msg)")
+            saveError = msg
+            showSaveError = true
         }
     }
 
