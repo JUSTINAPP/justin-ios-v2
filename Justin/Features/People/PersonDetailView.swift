@@ -1,81 +1,105 @@
 import SwiftUI
-import PhotosUI
+import Supabase
 
 struct PersonDetailView: View {
     let person: PeopleEntry
     private var name: String { person.name }
 
-    // Local placeholder model — mirrors Occasion (Core/Models/Occasion.swift).
-    // Replace with Occasion when Supabase is wired; personId will be the real UUID
-    // from the people table. remindBeforeRecording drives the pre-date notification.
-    private struct LocalOccasion: Identifiable {
-        let id = UUID()
+    @EnvironmentObject var auth: AuthService
+    @Environment(\.dismiss) private var dismiss  // pops this view in the NavigationStack
+
+    struct LoadedOccasion: Identifiable {
+        let id: UUID
         var label: String
         var date: Date
-        var remindBeforeRecording: Bool = true
     }
 
+    @State private var phone = ""
     @State private var relationship = ""
     @State private var notes = ""
-    @State private var occasions: [LocalOccasion] = Self.placeholderOccasions
-    @State private var showAddDate = false
-    @State private var newLabel = ""
-    @State private var newDate = Date()
-    @FocusState private var labelFocused: Bool
+    @State private var occasions: [LoadedOccasion] = []
+    @State private var avatarURL: URL?
 
-    // Avatar photo (Tier 1 — your custom photo, stored on-device)
-    @State private var avatarPickerItem: PhotosPickerItem?
-    @State private var avatarImageData: Data?
+    @State private var isLoading = false
+    @State private var showEditPerson = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
 
-    private static var placeholderOccasions: [LocalOccasion] {
-        let cal = Calendar.current
-        var aug = DateComponents(); aug.month = 8; aug.day = 12
-        var oct = DateComponents(); oct.month = 10; oct.day = 4
-        return [
-            LocalOccasion(label: "Birthday",    date: cal.date(from: aug) ?? Date()),
-            LocalOccasion(label: "Anniversary", date: cal.date(from: oct) ?? Date()),
-        ]
-    }
-
-    private static let dayMonthFormatter: DateFormatter = {
+    private static let dayMonthFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "d MMM"; return f
     }()
 
+    private static let isoDateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     var body: some View {
-        List {
-            headerSection
-            relationshipSection
-            datesSection
-            notesSection
-            giftsSection
+        Group {
+            if isLoading || isDeleting {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    headerSection
+                    if !phone.isEmpty { contactSection }
+                    if !occasions.isEmpty { datesSection }
+                    if !notes.isEmpty { notesSection }
+                    giftsSection
+                }
+                .scrollClearance()
+            }
         }
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
-        .scrollClearance()
-        .onChange(of: avatarPickerItem) { _, item in
-            Task { @MainActor in
-                if let data = try? await item?.loadTransferable(type: Data.self) {
-                    avatarImageData = data
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button { showEditPerson = true } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Remove \(name)", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
+                .disabled(isDeleting)
             }
         }
+        .sheet(isPresented: $showEditPerson) {
+            AddPersonView(isPresented: $showEditPerson, personId: person.id)
+        }
+        .onChange(of: showEditPerson) { _, isShowing in
+            if !isShowing { Task { await loadPerson() } }
+        }
+        .alert("Remove \(name)?", isPresented: $showDeleteConfirmation) {
+            Button("Remove", role: .destructive) { Task { await deletePerson() } }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes them and their saved dates.")
+        }
+        .task { await loadPerson() }
     }
 
-    // MARK: - Header
+    // MARK: - Header (avatar + relationship tagline)
 
     private var headerSection: some View {
         Section {
             HStack {
                 Spacer()
-                PhotosPicker(selection: $avatarPickerItem, matching: .images) {
-                    VStack(spacing: 10) {
-                        PersonAvatarView(name: name, size: 80, localPhotoData: avatarImageData)
-                        Text(avatarImageData != nil ? "Change photo" : "Add photo")
-                            .font(.system(.subheadline))
-                            .foregroundColor(.brandPurple)
+                VStack(spacing: 8) {
+                    PersonAvatarView(name: name, size: 80, remoteAvatarURL: avatarURL)
+                    if !relationship.isEmpty {
+                        Text(relationship)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .buttonStyle(.plain)
                 Spacer()
             }
             .padding(.vertical, 8)
@@ -84,113 +108,35 @@ struct PersonDetailView: View {
         .listRowSeparator(.hidden)
     }
 
-    // MARK: - Relationship
-
-    private var relationshipSection: some View {
-        Section {
-            TextField("e.g. Daughter, Partner, Best friend", text: $relationship)
-        } header: {
-            Text("Relationship")
+    private var contactSection: some View {
+        Section("Contact") {
+            Label(phone, systemImage: "phone")
+                .foregroundStyle(.secondary)
         }
     }
-
-    // MARK: - Important dates
 
     private var datesSection: some View {
-        Section {
-            ForEach(occasions) { occasion in
+        Section("Important dates") {
+            ForEach(occasions) { occ in
                 HStack {
-                    Text(occasion.label)
+                    Text(occ.label)
                     Spacer()
-                    Text(Self.dayMonthFormatter.string(from: occasion.date))
-                        .foregroundColor(.secondary)
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        occasions.removeAll { $0.id == occasion.id }
-                    } label: {
-                        Label("Remove", systemImage: "trash")
-                    }
+                    Text(Self.dayMonthFmt.string(from: occ.date))
+                        .foregroundStyle(.secondary)
                 }
             }
-
-            if showAddDate {
-                addDateRow
-            } else {
-                Button {
-                    showAddDate = true
-                    labelFocused = true
-                } label: {
-                    Label("Add a date", systemImage: "plus")
-                }
-                .foregroundColor(.brandPurple)
-            }
-        } header: {
-            Text("Important dates")
-        } footer: {
-            // Design intent: these occasions are designed to trigger gentle reminder prompts
-            // to record a message before the date — e.g. "Em's birthday is in 2 weeks —
-            // want to leave her something?" Prompts are tied to real user-set occasions only.
-            // Never nagging or engagement-farming. Author can toggle reminders per occasion.
-            Text("Justin can gently remind you to leave a message before these dates.")
         }
     }
-
-    @ViewBuilder
-    private var addDateRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            TextField("Label (e.g. Birthday)", text: $newLabel)
-                .focused($labelFocused)
-            DatePicker("Date", selection: $newDate, displayedComponents: .date)
-                .datePickerStyle(.compact)
-            HStack {
-                Button("Add") {
-                    let trimmed = newLabel.trimmingCharacters(in: .whitespaces)
-                    guard !trimmed.isEmpty else { return }
-                    occasions.append(LocalOccasion(label: trimmed, date: newDate))
-                    newLabel = ""; newDate = Date(); showAddDate = false
-                }
-                .foregroundColor(.brandPurple)
-                .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                Spacer()
-
-                Button("Cancel") {
-                    newLabel = ""; showAddDate = false
-                }
-                .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Notes
 
     private var notesSection: some View {
-        Section {
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $notes)
-                    .frame(minHeight: 80)
-                if notes.isEmpty {
-                    Text("Private notes about \(name)...")
-                        .foregroundColor(Color(.placeholderText))
-                        .font(.system(.body))
-                        .padding(.top, 8)
-                        .padding(.leading, 5)
-                        .allowsHitTesting(false)
-                }
-            }
-        } header: {
-            Text("Notes")
-        } footer: {
-            Text("Only you can see these.")
+        Section("Notes") {
+            Text(notes)
+                .foregroundStyle(.secondary)
         }
     }
 
-    // MARK: - Gifts shortcuts
-
     private var giftsSection: some View {
-        Section {
+        Section("Gifts") {
             NavigationLink(destination: ReceivedGiftDetailView(giftId: person.receivingGiftId, fromName: name)) {
                 Label("Their gift to you", systemImage: "arrow.down.circle")
                     .foregroundColor(.brandPurple)
@@ -199,8 +145,121 @@ struct PersonDetailView: View {
                 Label("Your gift to them", systemImage: "arrow.up.circle")
                     .foregroundColor(.brandRose)
             }
-        } header: {
-            Text("Gifts")
+        }
+    }
+
+    // MARK: - Load
+
+    private func loadPerson() async {
+        guard let ownerId = auth.currentPerson?.id else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            struct PersonRow: Decodable { let phone: String? }
+            let rows: [PersonRow] = try await supabase
+                .from("people")
+                .select("phone")
+                .eq("id", value: person.id.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            phone = rows.first?.phone ?? ""
+        } catch {
+            print("[PersonDetail] phone load skipped: \(error)")
+        }
+
+        do {
+            struct OverrideRow: Decodable {
+                let relationship: String?
+                let notes: String?
+                let avatarStoragePath: String?
+                enum CodingKeys: String, CodingKey {
+                    case relationship, notes
+                    case avatarStoragePath = "avatar_storage_path"
+                }
+            }
+            let overrides: [OverrideRow] = try await supabase
+                .from("person_overrides")
+                .select()
+                .eq("owner_id", value: ownerId.uuidString)
+                .eq("person_id", value: person.id.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            if let o = overrides.first {
+                relationship = o.relationship ?? ""
+                notes = o.notes ?? ""
+                if let path = o.avatarStoragePath {
+                    avatarURL = try? await supabase.storage
+                        .from("photos")
+                        .createSignedURL(path: path, expiresIn: 3600)
+                }
+            }
+        } catch {
+            print("[PersonDetail] overrides load skipped: \(error)")
+        }
+
+        do {
+            struct OccasionRow: Decodable {
+                let id: UUID
+                let label: String
+                let date: String
+            }
+            let rows: [OccasionRow] = try await supabase
+                .from("occasions")
+                .select()
+                .eq("owner_id", value: ownerId.uuidString)
+                .eq("person_id", value: person.id.uuidString)
+                .execute()
+                .value
+            occasions = rows.compactMap { row in
+                guard let date = Self.isoDateFmt.date(from: row.date) else { return nil }
+                return LoadedOccasion(id: row.id, label: row.label, date: date)
+            }
+        } catch {
+            print("[PersonDetail] occasions load skipped: \(error)")
+        }
+    }
+
+    // MARK: - Delete
+
+    private func deletePerson() async {
+        guard let ownerId = auth.currentPerson?.id else { return }
+        isDeleting = true
+        // No defer reset — we pop immediately on success; reset only on failure.
+
+        do {
+            try await supabase
+                .from("occasions")
+                .delete()
+                .eq("owner_id", value: ownerId.uuidString)
+                .eq("person_id", value: person.id.uuidString)
+                .execute()
+
+            try await supabase
+                .from("person_overrides")
+                .delete()
+                .eq("owner_id", value: ownerId.uuidString)
+                .eq("person_id", value: person.id.uuidString)
+                .execute()
+
+            // Only delete the people row for standalone contacts (no gift relationships).
+            // People tied to gifts are left in the people table; their override/occasions are removed above.
+            if !person.isGiving && !person.isReceiving {
+                try await supabase
+                    .from("people")
+                    .delete()
+                    .eq("id", value: person.id.uuidString)
+                    .execute()
+            }
+
+            print("[Person] deleted \(name)")
+            dismiss()
+
+        } catch {
+            print("[PersonDetail] delete failed: \(error)")
+            isDeleting = false
         }
     }
 }
@@ -209,4 +268,5 @@ struct PersonDetailView: View {
     NavigationStack {
         PersonDetailView(person: PeopleEntry(id: UUID(), name: "Em"))
     }
+    .environmentObject(AuthService())
 }

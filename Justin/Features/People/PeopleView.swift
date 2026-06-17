@@ -10,7 +10,7 @@ private enum PeopleNavDest: Hashable {
 struct PeopleView: View {
     @EnvironmentObject var auth: AuthService
     @StateObject private var viewModel = PeopleViewModel()
-    @State private var showRecord = false
+    @State private var showAddPerson = false
 
     var body: some View {
         Group {
@@ -42,7 +42,7 @@ struct PeopleView: View {
                         heading: "Your people will appear here.",
                         message: "Add the people you love, and keep the moments that matter to them close.",
                         actionLabel: "Add someone",
-                        action: { showRecord = true }
+                        action: { showAddPerson = true }
                     )
                     .padding(.horizontal, 20)
                 }
@@ -52,6 +52,11 @@ struct PeopleView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { Wordmark() }
+            ToolbarItem(placement: .primaryAction) {
+                Button { showAddPerson = true } label: {
+                    Image(systemName: "person.badge.plus")
+                }
+            }
         }
         .navigationDestination(for: PeopleNavDest.self) { dest in
             switch dest {
@@ -63,8 +68,14 @@ struct PeopleView: View {
                 GiftDetailView(giftId: giftId, recipientName: name)
             }
         }
-        .fullScreenCover(isPresented: $showRecord) {
-            RecordFlowView()
+        .sheet(isPresented: $showAddPerson) {
+            AddPersonView(isPresented: $showAddPerson) { entry in
+                viewModel.people.append(entry)
+                viewModel.people.sort { $0.name < $1.name }
+                if let id = auth.currentPerson?.id {
+                    Task { await viewModel.fetch(currentPersonId: id) }
+                }
+            }
         }
         .onAppear {
             guard let id = auth.currentPerson?.id else { return }

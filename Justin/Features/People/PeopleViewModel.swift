@@ -75,6 +75,45 @@ final class PeopleViewModel: ObservableObject {
                 }
             }
 
+            // Direction 3 — persons added directly (person_overrides), no gift required.
+            // Two separate queries avoids relying on a FK join from person_overrides→people,
+            // which may not be set up in Supabase yet.
+            do {
+                struct OverrideId: Decodable {
+                    let personId: UUID
+                    enum CodingKeys: String, CodingKey { case personId = "person_id" }
+                }
+                let overrides: [OverrideId] = try await supabase
+                    .from("person_overrides")
+                    .select("person_id")
+                    .eq("owner_id", value: currentPersonId.uuidString)
+                    .execute()
+                    .value
+
+                let standaloneIds = overrides.map { $0.personId }.filter { entries[$0] == nil }
+
+                if !standaloneIds.isEmpty {
+                    let peopleRows: [PersonSummary] = try await supabase
+                        .from("people")
+                        .select("id, display_name")
+                        .in("id", values: standaloneIds.map(\.uuidString))
+                        .execute()
+                        .value
+
+                    for row in peopleRows {
+                        print("[People] person \(row.id) displayName=\(row.displayName ?? "nil")")
+                        entries[row.id] = PeopleEntry(
+                            id: row.id,
+                            name: row.displayName ?? "Unknown",
+                            givingGiftId: nil,
+                            receivingGiftId: nil
+                        )
+                    }
+                }
+            } catch {
+                print("[People] standalone persons fetch skipped: \(error)")
+            }
+
             people = entries.values.sorted { $0.name < $1.name }
             print("[People] loaded \(people.count) people")
 
@@ -115,4 +154,5 @@ final class PeopleViewModel: ObservableObject {
             case displayName = "display_name"
         }
     }
+
 }
