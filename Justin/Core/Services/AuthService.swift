@@ -53,6 +53,9 @@ final class AuthService: ObservableObject {
                 type: .sms
             )
             print("[Auth] verifyOTP succeeded — userId: \(response.user.id)")
+            print("[AuthCheck] current user id: \(String(describing: supabase.auth.currentUser?.id))")
+            print("[AuthCheck] current session exists: \(supabase.auth.currentSession != nil)")
+            print("[AuthCheck] access token present: \(supabase.auth.currentSession?.accessToken != nil)")
             await handleVerifiedUser(userId: response.user.id, phone: phone)
         } catch {
             logAuthError("verifyOTP", error)

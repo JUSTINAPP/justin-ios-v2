@@ -10,7 +10,7 @@ enum ReleaseType: String, Codable {
 struct Message: Codable, Identifiable {
     let id: UUID
     let giftId: UUID
-    let voiceUrl: String
+    let voiceUrl: String?    // null until Storage upload is wired
     let photoUrls: [String]
     let caption: String?
     let releaseType: ReleaseType

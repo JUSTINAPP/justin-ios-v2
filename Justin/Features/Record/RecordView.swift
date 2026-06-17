@@ -498,7 +498,9 @@ struct RecordStep5PreviewView: View {
     @Binding var path: NavigationPath
     let onDone: () -> Void
     @EnvironmentObject var model: RecordFlowModel
+    @EnvironmentObject var auth: AuthService
     @StateObject private var player = AudioPlayer()
+    @State private var isSaving = false
 
     private var releaseDescription: String {
         switch model.releaseType {
@@ -584,23 +586,23 @@ struct RecordStep5PreviewView: View {
 
                 Button {
                     player.stop()
-                    // TODO(supabase): upload audio + photos to Storage, insert message row,
-                    //                 link to gift record before branching below
-                    if model.isNewRecipient {
-                        path.append(RecordStep.invite)
-                    } else {
-                        // Existing circle member — gift lands on their shelf directly
-                        onDone()
-                    }
+                    Task { await saveAndFinish() }
                 } label: {
-                    Text("Add to gift")
-                        .font(.system(.body).weight(.semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.brandPurple)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    Group {
+                        if isSaving {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text("Add to gift")
+                                .font(.system(.body).weight(.semibold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Color.brandPurple)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
+                .disabled(isSaving)
                 .padding(.horizontal, 28)
                 .padding(.bottom, 48)
             }
@@ -616,6 +618,32 @@ struct RecordStep5PreviewView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear { if let url = model.audioURL { player.load(url: url) } }
         .onDisappear { player.stop() }
+    }
+
+    private func saveAndFinish() async {
+        guard let authorId = auth.currentPerson?.id else {
+            print("[Save] error: no authenticated person — cannot save gift")
+            // Still branch so the user isn't stuck in the flow
+            branch()
+            return
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await GiftSaveService().save(model: model, authorId: authorId)
+        } catch {
+            print("[Save] gift save failed: \(error)")
+            print("[Save] localizedDescription: \(error.localizedDescription)")
+        }
+        branch()
+    }
+
+    private func branch() {
+        if model.isNewRecipient {
+            path.append(RecordStep.invite)
+        } else {
+            onDone()
+        }
     }
 }
 

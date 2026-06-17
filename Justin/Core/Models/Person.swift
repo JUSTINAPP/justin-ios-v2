@@ -3,7 +3,7 @@ import Foundation
 struct Person: Codable, Identifiable {
     let id: UUID
     var displayName: String?
-    let phone: String
+    let phone: String?       // null for pending persons not yet on the app
     let authId: UUID?
     let isVerified: Bool
     let avatarUrl: String?

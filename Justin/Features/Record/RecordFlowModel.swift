@@ -6,6 +6,9 @@ import UIKit
 @MainActor
 final class RecordFlowModel: ObservableObject {
     @Published var recipientName: String = ""
+    // Set when selecting an existing circle member who has a real DB person row.
+    // Nil for hardcoded placeholder people (until the circle tab is wired to real data).
+    @Published var recipientPersonId: UUID? = nil
     // Optional phone number captured on the "Add someone new" path.
     // Identity anchor: when the recipient verifies this number on signup, deferred deep
     // linking converges any pending gifts to their shelf (handled when backend connects).
