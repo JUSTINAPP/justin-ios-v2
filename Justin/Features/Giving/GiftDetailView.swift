@@ -4,6 +4,9 @@ import Supabase
 struct GiftDetailView: View {
     let giftId: UUID?        // nil from People tab (placeholder rows have no real DB id yet)
     let recipientName: String
+    var recipientPersonId: UUID? = nil  // set when launched from People tab
+
+    @EnvironmentObject var auth: AuthService
 
     @State private var messages: [Message] = []
     @State private var isLoading = false
@@ -11,9 +14,10 @@ struct GiftDetailView: View {
     @State private var messageToDelete: Message?
     @State private var showDeleteConfirm = false
     @State private var playingMessage: Message? = nil
+    @State private var authorAvatarURL: URL?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             Color.cream.ignoresSafeArea()
 
             if isLoading {
@@ -23,12 +27,29 @@ struct GiftDetailView: View {
                 List {
                     headerSection
                     messagesSection
-                    addAnotherSection
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .scrollClearance()
+                .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 80) }
             }
+
+            // Persistent floating add button — always visible, no scrolling required
+            Button { showRecord = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("Add a message")
+                        .font(.system(.subheadline).weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 13)
+                .background(Color.ink)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
+            }
+            .padding(.bottom, 20)
         }
         .navigationTitle("For \(recipientName)")
         .navigationBarTitleDisplayMode(.inline)
@@ -43,13 +64,18 @@ struct GiftDetailView: View {
             Text("\(releaseHeading(msg)) will be permanently removed from this gift.")
         }
         .fullScreenCover(isPresented: $showRecord) {
-            RecordFlowView()
+            RecordFlowView(
+                prefillRecipientName: recipientPersonId != nil ? recipientName : "",
+                prefillRecipientId: recipientPersonId
+            )
         }
         .fullScreenCover(item: $playingMessage) { msg in
             KenBurnsPlayerView(
                 voicePath: msg.voiceUrl,
                 photoPaths: msg.photoUrls,
-                fromName: ""
+                fromName: auth.currentPerson?.displayName ?? "Me",
+                caption: msg.caption,
+                avatarURL: authorAvatarURL
             )
         }
         .task { await loadMessages() }
@@ -129,34 +155,6 @@ struct GiftDetailView: View {
         }
     }
 
-    private var addAnotherSection: some View {
-        Section {
-            Button { showRecord = true } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.brandPurple)
-                    Text("Add another message")
-                        .font(.system(.body).weight(.medium))
-                        .foregroundColor(.brandPurple)
-                    Spacer()
-                }
-                .padding(16)
-                .background(Color.brandPurple.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(Color.brandPurple.opacity(0.22), lineWidth: 1)
-                }
-            }
-            .buttonStyle(.plain)
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 24, trailing: 20))
-        }
-        .listSectionSeparator(.hidden)
-    }
-
     // MARK: - Message row
 
     private func messageRow(_ message: Message) -> some View {
@@ -186,6 +184,12 @@ struct GiftDetailView: View {
                     Text(releaseDetail(message))
                         .font(.system(.caption))
                         .foregroundColor(Color.ink.opacity(0.45))
+
+                    if let date = message.createdAt {
+                        Text("Created " + DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none))
+                            .font(.system(.caption2))
+                            .foregroundColor(Color.ink.opacity(0.3))
+                    }
 
                     HStack(spacing: 4) {
                         if message.opened {
@@ -271,9 +275,16 @@ struct GiftDetailView: View {
                 .execute()
                 .value
             messages = rows
-            print("[GiftDetail] loaded \(rows.count) real messages, first voicePath: \(rows.first?.voiceUrl ?? "nil")")
+            print("[GiftDetail] loaded \(rows.count) messages")
         } catch {
             print("[GiftDetail] fetch failed: \(error)")
+        }
+
+        // Load the author's own avatar for the player's sender circle.
+        if let path = auth.currentPerson?.avatarUrl {
+            authorAvatarURL = try? await supabase.storage
+                .from("photos")
+                .createSignedURL(path: path, expiresIn: 3600)
         }
     }
 

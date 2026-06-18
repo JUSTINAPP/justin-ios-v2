@@ -1,10 +1,11 @@
 import SwiftUI
+import Supabase
 
 // Navigation destinations within the People tab.
 private enum PeopleNavDest: Hashable {
     case detail(PeopleEntry)
     case receivedGift(giftId: UUID?, name: String)
-    case givingGift(giftId: UUID?, name: String)
+    case givingGift(giftId: UUID?, name: String, personId: UUID?)
 }
 
 struct PeopleView: View {
@@ -64,8 +65,8 @@ struct PeopleView: View {
                 PersonDetailView(person: person)
             case .receivedGift(let giftId, let name):
                 ReceivedGiftDetailView(giftId: giftId, fromName: name)
-            case .givingGift(let giftId, let name):
-                GiftDetailView(giftId: giftId, recipientName: name)
+            case .givingGift(let giftId, let name, let personId):
+                GiftDetailView(giftId: giftId, recipientName: name, recipientPersonId: personId)
             }
         }
         .sheet(isPresented: $showAddPerson) {
@@ -129,7 +130,7 @@ struct PeopleView: View {
         // so tapping a tag fires only the tag's link, not the card's link.
         NavigationLink(value: PeopleNavDest.detail(person)) {
             HStack(spacing: 14) {
-                InitialsAvatar(name: person.name, size: 48)
+                StorageAvatarView(name: person.name, size: 48, storagePath: person.avatarStoragePath)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(person.name)
@@ -148,7 +149,8 @@ struct PeopleView: View {
                         if person.isGiving {
                             NavigationLink(value: PeopleNavDest.givingGift(
                                 giftId: person.givingGiftId,
-                                name: person.name
+                                name: person.name,
+                                personId: person.id
                             )) {
                                 relationshipTag("your gift to them",
                                                systemImage: "arrow.up",
@@ -183,6 +185,26 @@ struct PeopleView: View {
             .padding(.vertical, 3)
             .background(color.opacity(0.1))
             .clipShape(Capsule())
+    }
+}
+
+// Async helper: resolves a storage path to a signed URL and shows PersonAvatarView.
+// Renders initials while loading or when no path is set.
+private struct StorageAvatarView: View {
+    let name: String
+    let size: CGFloat
+    let storagePath: String?
+
+    @State private var url: URL?
+
+    var body: some View {
+        PersonAvatarView(name: name, size: size, remoteAvatarURL: url)
+            .task(id: storagePath) {
+                guard let path = storagePath else { url = nil; return }
+                url = try? await supabase.storage
+                    .from("photos")
+                    .createSignedURL(path: path, expiresIn: 3600)
+            }
     }
 }
 

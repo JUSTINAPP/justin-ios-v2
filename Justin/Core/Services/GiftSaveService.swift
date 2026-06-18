@@ -69,6 +69,17 @@ final class GiftSaveService {
                 .execute()
                 .value
             print("[Save] gift+message saved, message id: \(messageId)")
+
+            // Caption lives in the messages.caption column; persist it after the RPC.
+            let trimmedCaption = model.messageCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedCaption.isEmpty {
+                try? await supabase
+                    .from("messages")
+                    .update(["caption": trimmedCaption])
+                    .eq("id", value: messageId.uuidString)
+                    .execute()
+                print("[Save] caption saved")
+            }
         } catch {
             print("[Save] gift save failed: \(error)")
             print("[Save] localizedDescription: \(error.localizedDescription)")

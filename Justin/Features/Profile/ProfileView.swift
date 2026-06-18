@@ -1,8 +1,16 @@
 import SwiftUI
+import PhotosUI
+import Supabase
 
 struct ProfileView: View {
     @EnvironmentObject var auth: AuthService
     @State private var showSignOutConfirm = false
+
+    // Avatar
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var avatarData: Data?          // local preview after picking
+    @State private var avatarSignedURL: URL?       // loaded from storage on appear
+    @State private var isSavingAvatar = false
 
     var body: some View {
         List {
@@ -17,7 +25,7 @@ struct ProfileView: View {
             // Profile header
             Section {
                 HStack(spacing: 14) {
-                    InitialsAvatar(name: auth.currentPerson?.displayName ?? "You", size: 60)
+                    avatarPicker
                     VStack(alignment: .leading, spacing: 3) {
                         Text(auth.currentPerson?.displayName ?? "You")
                             .font(.title3.weight(.semibold))
@@ -68,6 +76,79 @@ struct ProfileView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You'll need your phone number to sign back in.")
+        }
+        .onChange(of: pickerItem) { _, item in
+            guard let item else { return }
+            Task { await uploadAvatar(item) }
+        }
+        .task {
+            guard let path = auth.currentPerson?.avatarUrl else { return }
+            avatarSignedURL = try? await supabase.storage
+                .from("photos")
+                .createSignedURL(path: path, expiresIn: 3600)
+        }
+    }
+
+    // MARK: - Avatar picker
+
+    private var avatarPicker: some View {
+        PhotosPicker(selection: $pickerItem, matching: .images) {
+            ZStack(alignment: .bottomTrailing) {
+                PersonAvatarView(
+                    name: auth.currentPerson?.displayName ?? "You",
+                    size: 60,
+                    localPhotoData: avatarData,
+                    remoteAvatarURL: avatarSignedURL
+                )
+                .overlay {
+                    if isSavingAvatar {
+                        Circle()
+                            .fill(.black.opacity(0.4))
+                        ProgressView()
+                            .tint(.white)
+                    }
+                }
+                .clipShape(Circle())
+
+                Image(systemName: "camera.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white, Color.brandPurple)
+                    .offset(x: 4, y: 4)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isSavingAvatar)
+    }
+
+    // MARK: - Upload
+
+    private func uploadAvatar(_ item: PhotosPickerItem) async {
+        guard let currentId = auth.currentPerson?.id else { return }
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let uiImage = UIImage(data: data),
+              let jpegData = uiImage.jpegData(compressionQuality: 0.85) else { return }
+
+        isSavingAvatar = true
+        defer { isSavingAvatar = false }
+
+        let path = "avatars/\(currentId).jpg"
+        do {
+            try await supabase.storage
+                .from("photos")
+                .upload(path, data: jpegData,
+                        options: FileOptions(contentType: "image/jpeg", upsert: true))
+
+            try await supabase
+                .from("people")
+                .update(["avatar_url": path])
+                .eq("id", value: currentId.uuidString)
+                .execute()
+
+            avatarData = jpegData
+            await auth.refreshCurrentPerson()
+            print("[Profile] avatar uploaded: \(path)")
+        } catch {
+            print("[Profile] avatar upload failed: \(error)")
         }
     }
 }

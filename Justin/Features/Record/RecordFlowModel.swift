@@ -22,9 +22,11 @@ final class RecordFlowModel: ObservableObject {
     @Published var releaseDate: Date = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
     @Published var releaseFeeling: String = ""
     @Published var hiddenUntilRelease: Bool = false
+    @Published var messageCaption: String = ""
 
     var hasRecording: Bool { audioURL != nil }
     var hasPhotos: Bool { !selectedImages.isEmpty }
+    var hasCaption: Bool { !messageCaption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 }
 
 // MARK: - ReleaseType display helpers (UI only, not persisted)

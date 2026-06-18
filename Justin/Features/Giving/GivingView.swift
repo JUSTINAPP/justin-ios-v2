@@ -74,7 +74,7 @@ struct GivingView: View {
                         .padding(.bottom, 4)
 
                     ForEach(viewModel.gifts) { gift in
-                        NavigationLink(destination: GiftDetailView(giftId: gift.id, recipientName: gift.recipientName)) {
+                        NavigationLink(destination: GiftDetailView(giftId: gift.id, recipientName: gift.recipientName, recipientPersonId: gift.recipientId)) {
                             giftCard(gift)
                         }
                         .buttonStyle(.plain)

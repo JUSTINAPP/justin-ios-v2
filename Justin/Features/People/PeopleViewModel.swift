@@ -9,6 +9,7 @@ struct PeopleEntry: Identifiable, Hashable {
     let name: String
     var givingGiftId: UUID?    // gift the current user authored TO this person
     var receivingGiftId: UUID? // gift this person authored FOR the current user
+    var avatarStoragePath: String? = nil
 
     var isGiving:    Bool { givingGiftId    != nil }
     var isReceiving: Bool { receivingGiftId != nil }
@@ -75,23 +76,32 @@ final class PeopleViewModel: ObservableObject {
                 }
             }
 
-            // Direction 3 — persons added directly (person_overrides), no gift required.
-            // Two separate queries avoids relying on a FK join from person_overrides→people,
-            // which may not be set up in Supabase yet.
+            // Direction 3 — person_overrides: two jobs in one query.
+            //   a) Finds standalone contacts (no gift) to add to the list.
+            //   b) Provides avatar_storage_path for ALL persons (gift-linked + standalone).
             do {
-                struct OverrideId: Decodable {
+                struct OverrideInfo: Decodable {
                     let personId: UUID
-                    enum CodingKeys: String, CodingKey { case personId = "person_id" }
+                    let avatarStoragePath: String?
+                    enum CodingKeys: String, CodingKey {
+                        case personId = "person_id"
+                        case avatarStoragePath = "avatar_storage_path"
+                    }
                 }
-                let overrides: [OverrideId] = try await supabase
+                let overrides: [OverrideInfo] = try await supabase
                     .from("person_overrides")
-                    .select("person_id")
+                    .select("person_id, avatar_storage_path")
                     .eq("owner_id", value: currentPersonId.uuidString)
                     .execute()
                     .value
 
-                let standaloneIds = overrides.map { $0.personId }.filter { entries[$0] == nil }
+                // Apply avatar paths to already-known (gift-linked) persons.
+                for o in overrides {
+                    entries[o.personId]?.avatarStoragePath = o.avatarStoragePath
+                }
 
+                // Fetch names for standalone contacts not yet in entries.
+                let standaloneIds = overrides.map { $0.personId }.filter { entries[$0] == nil }
                 if !standaloneIds.isEmpty {
                     let peopleRows: [PersonSummary] = try await supabase
                         .from("people")
@@ -102,16 +112,18 @@ final class PeopleViewModel: ObservableObject {
 
                     for row in peopleRows {
                         print("[People] person \(row.id) displayName=\(row.displayName ?? "nil")")
+                        let avatarPath = overrides.first(where: { $0.personId == row.id })?.avatarStoragePath
                         entries[row.id] = PeopleEntry(
                             id: row.id,
                             name: row.displayName ?? "Unknown",
                             givingGiftId: nil,
-                            receivingGiftId: nil
+                            receivingGiftId: nil,
+                            avatarStoragePath: avatarPath
                         )
                     }
                 }
             } catch {
-                print("[People] standalone persons fetch skipped: \(error)")
+                print("[People] overrides fetch skipped: \(error)")
             }
 
             people = entries.values.sorted { $0.name < $1.name }

@@ -24,6 +24,7 @@ struct PersonDetailView: View {
     @State private var showEditPerson = false
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
+    @State private var showRecord = false
 
     private static let dayMonthFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "d MMM"; return f
@@ -44,6 +45,7 @@ struct PersonDetailView: View {
             } else {
                 List {
                     headerSection
+                    sendMessageSection
                     if !phone.isEmpty { contactSection }
                     if !occasions.isEmpty { datesSection }
                     if !notes.isEmpty { notesSection }
@@ -84,6 +86,33 @@ struct PersonDetailView: View {
             Text("This removes them and their saved dates.")
         }
         .task { await loadPerson() }
+        .fullScreenCover(isPresented: $showRecord) {
+            RecordFlowView(prefillRecipientName: name, prefillRecipientId: person.id)
+        }
+    }
+
+    // MARK: - Send message button
+
+    private var sendMessageSection: some View {
+        Section {
+            Button { showRecord = true } label: {
+                HStack {
+                    Spacer()
+                    Label("Send them a message", systemImage: "mic.circle.fill")
+                        .font(.system(.body).weight(.semibold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                }
+                .padding(.vertical, 14)
+                .background(Color.brandPurple)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+        }
+        .listSectionSeparator(.hidden)
     }
 
     // MARK: - Header (avatar + relationship tagline)
@@ -141,7 +170,7 @@ struct PersonDetailView: View {
                 Label("Their gift to you", systemImage: "arrow.down.circle")
                     .foregroundColor(.brandPurple)
             }
-            NavigationLink(destination: GiftDetailView(giftId: person.givingGiftId, recipientName: name)) {
+            NavigationLink(destination: GiftDetailView(giftId: person.givingGiftId, recipientName: name, recipientPersonId: person.id)) {
                 Label("Your gift to them", systemImage: "arrow.up.circle")
                     .foregroundColor(.brandRose)
             }

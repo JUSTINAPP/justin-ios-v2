@@ -119,7 +119,7 @@ struct AddPersonView: View {
                 PhotosPicker(selection: $avatarPickerItem, matching: .images) {
                     VStack(spacing: 10) {
                         PersonAvatarView(
-                            name: name.isEmpty ? "?" : name,
+                            name: name.isEmpty ? "New" : name,
                             size: 80,
                             localPhotoData: avatarImageData,
                             remoteAvatarURL: avatarImageData == nil ? existingAvatarURL : nil
@@ -367,6 +367,10 @@ struct AddPersonView: View {
 
     private func save() async {
         print("======= [AddPerson] SAVE BEGIN isEditing=\(isEditing) personId=\(String(describing: personId)) =======")
+        // PhotosPicker loads data asynchronously; ensure it's ready before we enter create/update.
+        if let item = avatarPickerItem, avatarImageData == nil {
+            avatarImageData = try? await item.loadTransferable(type: Data.self)
+        }
         if isEditing { await update() } else { await create() }
         print("======= [AddPerson] SAVE END =======")
     }
@@ -462,7 +466,8 @@ struct AddPersonView: View {
                 do {
                     try await supabase.storage
                         .from("photos")
-                        .upload(path, data: data, options: FileOptions(contentType: "image/jpeg"))
+                        .upload(path, data: data,
+                                options: FileOptions(contentType: "image/jpeg", upsert: true))
                     avatarPath = path
                     print("======= [AddPerson] avatar OK =======")
                 } catch {

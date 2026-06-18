@@ -101,6 +101,22 @@ final class AuthService: ObservableObject {
         }
     }
 
+    func refreshCurrentPerson() async {
+        guard let id = currentPerson?.id else { return }
+        do {
+            let rows: [Person] = try await supabase
+                .from("people")
+                .select()
+                .eq("id", value: id.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            if let person = rows.first { currentPerson = person }
+        } catch {
+            print("[Auth] refreshCurrentPerson failed: \(error)")
+        }
+    }
+
     func signOut() async {
         try? await supabase.auth.signOut()
         currentPerson = nil

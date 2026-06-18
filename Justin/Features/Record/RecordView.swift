@@ -4,9 +4,30 @@ import PhotosUI
 // MARK: - Flow container
 
 struct RecordFlowView: View {
+    // Optional pre-filled recipient (e.g. launched from a specific person's page).
+    // When set, the flow skips Step 1 and opens directly at the voice recording step.
+    var prefillRecipientName: String = ""
+    var prefillRecipientId:   UUID?  = nil
+
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var model = RecordFlowModel()
-    @State private var path = NavigationPath()
+    @StateObject private var model: RecordFlowModel
+    @State private var path: NavigationPath
+
+    init(prefillRecipientName: String = "", prefillRecipientId: UUID? = nil) {
+        self.prefillRecipientName = prefillRecipientName
+        self.prefillRecipientId   = prefillRecipientId
+
+        let m = RecordFlowModel()
+        var initialPath = NavigationPath()
+        if !prefillRecipientName.isEmpty, let pid = prefillRecipientId {
+            m.recipientName     = prefillRecipientName
+            m.recipientPersonId = pid
+            m.isNewRecipient    = false
+            initialPath.append(RecordStep.voice)
+        }
+        _model = StateObject(wrappedValue: m)
+        _path  = State(initialValue: initialPath)
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -259,53 +280,104 @@ struct RecordStep3PhotosView: View {
     var body: some View {
         StepShell(
             step: "3 of 5",
-            title: "Add photos",
-            nextLabel: model.hasPhotos ? "Next" : "Skip — just my voice",
+            title: "Add photos or words",
             next: { path.append(RecordStep.when) }
         ) {
             VStack(spacing: 20) {
-                if model.hasPhotos {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(model.selectedImages.indices, id: \.self) { i in
-                                Image(uiImage: model.selectedImages[i])
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 96, height: 96)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                // ── Photos ──────────────────────────────────────
+
+                VStack(alignment: .leading, spacing: 12) {
+                    if model.hasPhotos {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(model.selectedImages.indices, id: \.self) { i in
+                                    Image(uiImage: model.selectedImages[i])
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 96, height: 96)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
                             }
                         }
                     }
+
+                    PhotosPicker(
+                        selection: $pickerItems,
+                        maxSelectionCount: 5,
+                        matching: .images
+                    ) {
+                        Label(
+                            model.hasPhotos ? "Change photos" : "Choose photos",
+                            systemImage: "photo.on.rectangle"
+                        )
+                        .font(.system(.body).weight(.medium))
+                        .foregroundColor(.brandPurple)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.brandPurple.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(Color.brandPurple.opacity(0.25), lineWidth: 1)
+                        }
+                    }
+
+                    if model.hasPhotos {
+                        Button("Remove all photos") {
+                            model.selectedImages = []
+                            pickerItems = []
+                        }
+                        .font(.system(.subheadline))
+                        .foregroundColor(.secondary)
+                    }
                 }
 
-                PhotosPicker(
-                    selection: $pickerItems,
-                    maxSelectionCount: 5,
-                    matching: .images
-                ) {
-                    Label(
-                        model.hasPhotos ? "Change photos" : "Choose photos",
-                        systemImage: "photo.on.rectangle"
-                    )
-                    .font(.system(.body).weight(.medium))
-                    .foregroundColor(.brandPurple)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.brandPurple.opacity(0.08))
+                Divider()
+
+                // ── Words ────────────────────────────────────────
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Add a few words")
+                        .font(.system(.subheadline).weight(.medium))
+
+                    Text("Optional. Appears on screen while your voice plays.")
+                        .font(.system(.caption))
+                        .foregroundColor(.secondary)
+
+                    ZStack(alignment: .topLeading) {
+                        if model.messageCaption.isEmpty {
+                            Text("Write something…")
+                                .font(.custom("Caveat", size: 19))
+                                .foregroundColor(Color(.placeholderText))
+                                .padding(.top, 10)
+                                .padding(.leading, 12)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $model.messageCaption)
+                            .font(.custom("Caveat", size: 19))
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 90)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
+                    .padding(4)
+                    .background(Color(.systemFill))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 14)
-                            .strokeBorder(Color.brandPurple.opacity(0.25), lineWidth: 1)
+                        if model.hasCaption {
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(Color.brandPurple.opacity(0.3), lineWidth: 1)
+                        }
                     }
-                }
 
-                if model.hasPhotos {
-                    Button("Remove all photos") {
-                        model.selectedImages = []
-                        pickerItems = []
+                    if model.hasCaption {
+                        Button("Clear") {
+                            model.messageCaption = ""
+                        }
+                        .font(.system(.subheadline))
+                        .foregroundColor(.secondary)
                     }
-                    .font(.system(.subheadline))
-                    .foregroundColor(.secondary)
                 }
             }
         }
@@ -517,7 +589,6 @@ struct RecordStep5PreviewView: View {
     let onDone: () -> Void
     @EnvironmentObject var model: RecordFlowModel
     @EnvironmentObject var auth: AuthService
-    @StateObject private var player = AudioPlayer()
     @State private var isSaving = false
     @State private var saveError: String? = nil
 
@@ -540,64 +611,42 @@ struct RecordStep5PreviewView: View {
 
     var body: some View {
         ZStack {
-            // Ken Burns background — uses the user's actual selected photos
-            // (or gradient if none selected). Controls are hidden; audio is
-            // managed by this view's own AudioPlayer below.
-            KenBurnsPlayerView(localImages: model.selectedImages, showControls: false)
-                .ignoresSafeArea()
-
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.65)],
-                startPoint: .center, endPoint: .bottom
+            // Full-screen player — identical to what the recipient sees.
+            // showControls:false hides the bottom bar; showCenterPlayButton shows
+            // the large 80pt play/pause button in the centre of the screen.
+            KenBurnsPlayerView(
+                fromName: auth.currentPerson?.displayName ?? "Me",
+                localImages: model.selectedImages,
+                showControls: false,
+                caption: model.hasCaption ? model.messageCaption : nil,
+                localAudioURL: model.audioURL,
+                showCenterPlayButton: true
             )
-            .ignoresSafeArea()
 
+            // Preview-only overlay: recipient context + save action.
+            // Sits above the player's own controls bar (52pt from bottom).
             VStack {
                 Spacer()
 
-                Text("For \(model.recipientName)")
-                    .font(.system(.subheadline).weight(.medium))
-                    .foregroundColor(.white.opacity(0.7))
-                    .padding(.bottom, 2)
+                VStack(spacing: 4) {
+                    Text("For \(model.recipientName)")
+                        .font(.system(.subheadline).weight(.medium))
+                        .foregroundColor(.white.opacity(0.7))
 
-                Text(releaseDescription)
-                    .font(.system(.caption).weight(.medium))
-                    .foregroundColor(.white.opacity(0.5))
-                    .padding(.bottom, 16)
-
-                Button { player.playPause() } label: {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.3), radius: 8)
+                    Text(releaseDescription)
+                        .font(.system(.caption).weight(.medium))
+                        .foregroundColor(.white.opacity(0.5))
                 }
                 .padding(.bottom, 12)
 
-                ProgressView(value: player.duration > 0 ? player.currentTime / player.duration : 0)
-                    .tint(.white)
-                    .padding(.horizontal, 40)
-
-                HStack {
-                    Text(player.currentTime.asTimeCode)
-                    Spacer()
-                    Text(player.duration.asTimeCode)
-                }
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white.opacity(0.6))
-                .padding(.horizontal, 40)
-                .padding(.top, 4)
-
-                Spacer()
-
                 Button {
-                    player.stop()
                     Task { await saveAndFinish() }
                 } label: {
                     Group {
                         if isSaving {
                             HStack(spacing: 8) {
                                 ProgressView().tint(.white)
-                                Text("Uploading\u{2026}")
+                                Text("Uploading…")
                                     .font(.system(.body).weight(.semibold))
                                     .foregroundColor(.white)
                             }
@@ -614,20 +663,13 @@ struct RecordStep5PreviewView: View {
                 }
                 .disabled(isSaving)
                 .padding(.horizontal, 28)
-                .padding(.bottom, 48)
+
+                // Space to clear the player's controls bar + safe area
+                Spacer().frame(height: 140)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Preview")
-                    .font(.system(.subheadline).weight(.semibold))
-                    .foregroundColor(.white)
-            }
-        }
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .onAppear { if let url = model.audioURL { player.load(url: url) } }
-        .onDisappear { player.stop() }
+        .ignoresSafeArea()
+        .toolbar(.hidden, for: .navigationBar)
         .alert("Couldn't save", isPresented: Binding(get: { saveError != nil }, set: { _ in saveError = nil })) {
             Button("OK") {}
         } message: {
