@@ -24,4 +24,7 @@ extension Color {
     static let ink         = Color(hex: "2e2540")
     static let cream       = Color(hex: "faf0e4")
     static let lilacBg     = Color(hex: "faf8fc")
+    // Recording screen
+    static let recordingBg = Color(hex: "1a1726")   // deep aubergine studio feel
+    static let recordRose  = Color(hex: "D4537E")   // brighter rose for record button
 }

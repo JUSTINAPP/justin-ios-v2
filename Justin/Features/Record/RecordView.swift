@@ -205,66 +205,229 @@ struct RecordStep2VoiceView: View {
     @Binding var path: NavigationPath
     @EnvironmentObject var model: RecordFlowModel
     @StateObject private var recorder = AudioRecorder()
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var sparkPage = 0
+
+    private static let sparks: [(String, String)] = [
+        ("A memory of you two that always makes you smile",
+         "Something you've never said out loud"),
+        ("Tell them what makes you proud of them",
+         "A simple thank you they've been waiting to hear"),
+        ("What you hope for them in the years ahead",
+         "A piece of advice you wish someone had given you"),
+    ]
+
+    private var isRecording: Bool { recorder.recordState == .recording }
+    private var isDone:      Bool { recorder.recordState == .done }
+
+    // MARK: - Body
 
     var body: some View {
-        StepShell(
-            step: "2 of 5",
-            title: "Say something to \(model.recipientName)",
-            isNextEnabled: recorder.recordState == .done,
-            next: { path.append(RecordStep.photos) }
-        ) {
-            VStack(spacing: 28) {
-                Spacer(minLength: 0)
-                Text(recorder.elapsedSeconds.asTimeCode)
-                    .font(.system(size: 52, weight: .thin, design: .monospaced))
-                    .foregroundColor(recorder.recordState == .recording ? .primary : .secondary)
-                    .animation(.easeInOut(duration: 0.25), value: recorder.recordState)
+        ZStack {
+            Color.recordingBg.ignoresSafeArea()
 
-                LiveWaveform(
-                    levels: recorder.meterLevels,
-                    active: recorder.recordState == .recording
-                )
-                .frame(height: 60)
-                .opacity(recorder.recordState == .idle ? 0 : 1)
+            VStack(spacing: 0) {
+                Spacer().frame(height: 110)
+
+                topSection
+
+                Spacer(minLength: 36)
+
+                // Middle: spark suggestions (idle) or waveform (recording); empty when done
+                Group {
+                    if isRecording {
+                        waveformSection.transition(.opacity)
+                    } else if !isDone {
+                        sparkSection.transition(.opacity)
+                    }
+                }
                 .animation(.easeInOut(duration: 0.3), value: recorder.recordState)
 
-                Button {
-                    switch recorder.recordState {
-                    case .idle, .done: recorder.requestAndStart()
-                    case .recording:
-                        recorder.stop()
-                        model.audioURL = recorder.recordingURL
-                    }
-                } label: {
-                    RecordButton(state: recorder.recordState)
-                }
-                .buttonStyle(.plain)
+                Spacer(minLength: 24)
 
-                Group {
-                    switch recorder.recordState {
-                    case .idle:
-                        Text("Tap to start recording").foregroundColor(.secondary)
-                    case .recording:
-                        Text("Recording — tap to stop").foregroundColor(.red)
-                    case .done:
-                        Label("Message recorded", systemImage: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    }
+                // Time — only while recording
+                if isRecording {
+                    timeView
+                        .padding(.bottom, 24)
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.2), value: isRecording)
                 }
-                .font(.system(.subheadline))
-                .animation(.easeInOut, value: recorder.recordState)
 
-                if recorder.recordState == .done {
-                    Button("Re-record") {
-                        recorder.discard()
-                        model.audioURL = nil
-                    }
-                    .font(.system(.subheadline))
-                    .foregroundColor(.secondary)
+                // Record / stop button
+                recordButtonArea
+                    .padding(.bottom, 10)
+
+                // State label below button
+                Text(belowButtonLabel)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .id(recorder.recordState)
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: recorder.recordState)
+                    .padding(.bottom, isDone ? 24 : 0)
+
+                // Continue — only when done
+                if isDone {
+                    continueSection
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .animation(.spring(duration: 0.35, bounce: 0.1), value: isDone)
                 }
+
+                Spacer(minLength: 40)
             }
             .frame(maxWidth: .infinity)
         }
+        .overlay(alignment: .topLeading) { closeButton }
+        .ignoresSafeArea()
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    // MARK: - Close
+
+    private var closeButton: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(.white.opacity(0.12))
+                .clipShape(Circle())
+        }
+        .padding(.top, 56)
+        .padding(.leading, 20)
+    }
+
+    // MARK: - Top section
+
+    private var topSection: some View {
+        VStack(spacing: 12) {
+            InitialsAvatar(
+                name: model.recipientName.isEmpty ? "?" : model.recipientName,
+                size: 52
+            )
+
+            Text(isRecording
+                 ? "Speaking to \(model.recipientName)"
+                 : "Say something to \(model.recipientName)")
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            if !isRecording && !isDone {
+                Text("Just talk to them like they're here")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: recorder.recordState)
+    }
+
+    // MARK: - Spark suggestions
+
+    @ViewBuilder
+    private var sparkSection: some View {
+        VStack(spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    sparkPage = (sparkPage + 1) % Self.sparks.count
+                }
+            } label: {
+                Text("Need a spark?")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.40))
+            }
+            .buttonStyle(.plain)
+
+            let pair = Self.sparks[sparkPage]
+            VStack(spacing: 8) {
+                sparkCard(pair.0)
+                sparkCard(pair.1)
+            }
+        }
+        .padding(.horizontal, 28)
+    }
+
+    private func sparkCard(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 14))
+            .foregroundStyle(.white.opacity(0.72))
+            .multilineTextAlignment(.center)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .background(.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+            }
+    }
+
+    // MARK: - Live waveform
+
+    private var waveformSection: some View {
+        LiveWaveform(levels: recorder.meterLevels, active: true)
+            .frame(height: 80)
+            .padding(.horizontal, 28)
+    }
+
+    // MARK: - Time display
+
+    private var timeView: some View {
+        let secs = recorder.elapsedSeconds
+        let label = secs < 8
+            ? secs.asTimeCode
+            : "\(secs.asTimeCode) · a little longer is lovely"
+        return Text(label)
+            .font(.system(size: 13, weight: .medium).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.45))
+    }
+
+    // MARK: - Record / stop button
+
+    private var recordButtonArea: some View {
+        Button {
+            switch recorder.recordState {
+            case .idle, .done:
+                recorder.requestAndStart()
+            case .recording:
+                recorder.stop()
+                model.audioURL = recorder.recordingURL
+            }
+        } label: {
+            RecordButton(state: recorder.recordState)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Label text
+
+    private var belowButtonLabel: String {
+        switch recorder.recordState {
+        case .idle:      return "Tap to start"
+        case .recording: return "Tap to finish"
+        case .done:      return "Tap to re-record"
+        }
+    }
+
+    // MARK: - Continue
+
+    private var continueSection: some View {
+        Button {
+            path.append(RecordStep.photos)
+        } label: {
+            Text("Continue")
+                .font(.system(.body).weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color.brandPurple)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .padding(.horizontal, 28)
     }
 }
 
@@ -611,34 +774,62 @@ struct RecordStep5PreviewView: View {
 
     var body: some View {
         ZStack {
-            // Full-screen player — identical to what the recipient sees.
-            // showControls:false hides the bottom bar; showCenterPlayButton shows
-            // the large 80pt play/pause button in the centre of the screen.
+            // Background player — photos + audio; caption: nil because words are
+            // displayed in the preview overlay below (constrained, never overlaps button).
             KenBurnsPlayerView(
                 fromName: auth.currentPerson?.displayName ?? "Me",
                 localImages: model.selectedImages,
                 showControls: false,
-                caption: model.hasCaption ? model.messageCaption : nil,
+                caption: nil,
                 localAudioURL: model.audioURL,
                 showCenterPlayButton: true
             )
 
-            // Preview-only overlay: recipient context + save action.
-            // Sits above the player's own controls bar (52pt from bottom).
-            VStack {
+            // ── Preview-only overlay ────────────────────────────────────────────
+            VStack(spacing: 0) {
+
+                // Title header — tells the gifter who this is for and when it opens.
+                // Preview-only metadata; the recipient never sees this.
+                VStack(spacing: 5) {
+                    Text("For \(model.recipientName)")
+                        .font(.system(.title3).weight(.bold))
+                        .foregroundStyle(.white)
+                    Text(releaseDescription)
+                        .font(.system(.subheadline).weight(.medium))
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 28)
+                .padding(.top, 72)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity)
+                .background(
+                    LinearGradient(
+                        colors: [.black.opacity(0.50), .clear],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+
                 Spacer()
 
-                VStack(spacing: 4) {
-                    Text("For \(model.recipientName)")
-                        .font(.system(.subheadline).weight(.medium))
-                        .foregroundColor(.white.opacity(0.7))
-
-                    Text(releaseDescription)
-                        .font(.system(.caption).weight(.medium))
-                        .foregroundColor(.white.opacity(0.5))
+                // Typed words — constrained area above the button.
+                // Never overlaps with "Add to gift" because it is bounded here
+                // and the Spacer() above absorbs slack, not this region.
+                if model.hasCaption {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        Text(model.messageCaption)
+                            .font(.custom("Caveat", size: 22))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: 110)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 12)
                 }
-                .padding(.bottom, 12)
 
+                // Add to gift — the sole call to action for the gifter
                 Button {
                     Task { await saveAndFinish() }
                 } label: {
@@ -648,12 +839,12 @@ struct RecordStep5PreviewView: View {
                                 ProgressView().tint(.white)
                                 Text("Uploading…")
                                     .font(.system(.body).weight(.semibold))
-                                    .foregroundColor(.white)
+                                    .foregroundStyle(.white)
                             }
                         } else {
                             Text("Add to gift")
                                 .font(.system(.body).weight(.semibold))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -664,8 +855,8 @@ struct RecordStep5PreviewView: View {
                 .disabled(isSaving)
                 .padding(.horizontal, 28)
 
-                // Space to clear the player's controls bar + safe area
-                Spacer().frame(height: 140)
+                // Bottom safe-area clearance (no controls bar — showControls: false)
+                Spacer().frame(height: 48)
             }
         }
         .ignoresSafeArea()
@@ -779,23 +970,42 @@ private struct RecordButton: View {
 
     var body: some View {
         ZStack {
+            // Outer translucent ring
             Circle()
-                .strokeBorder(.primary.opacity(0.15), lineWidth: 3)
-                .frame(width: 88, height: 88)
+                .strokeBorder(Color.recordRose.opacity(0.28), lineWidth: 2.5)
+                .frame(width: 80, height: 80)
 
             switch state {
             case .idle:
+                // Rose circle + mic — the invitation to record
                 Circle()
-                    .fill(.red)
-                    .frame(width: 66, height: 66)
+                    .fill(Color.recordRose)
+                    .frame(width: 60, height: 60)
+                    .overlay {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(.white)
+                    }
             case .recording:
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.red)
-                    .frame(width: 30, height: 30)
+                // Tinted ring + stop square
+                Circle()
+                    .fill(Color.recordRose.opacity(0.18))
+                    .frame(width: 60, height: 60)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.recordRose)
+                            .frame(width: 22, height: 22)
+                    }
             case .done:
-                Image(systemName: "checkmark")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundColor(.green)
+                // Dimmed mic — tapping starts a new recording
+                Circle()
+                    .fill(Color.white.opacity(0.10))
+                    .frame(width: 60, height: 60)
+                    .overlay {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
             }
         }
         .animation(.spring(duration: 0.25), value: state)
@@ -810,12 +1020,21 @@ private struct LiveWaveform: View {
     let levels: [CGFloat]
     let active: Bool
 
+    private static let roseGradient = LinearGradient(
+        colors: [Color(hex: "D4537E"), Color(hex: "F4C0D1")],
+        startPoint: .bottom, endPoint: .top
+    )
+    private static let idleGradient = LinearGradient(
+        colors: [Color.white.opacity(0.12), Color.white.opacity(0.12)],
+        startPoint: .bottom, endPoint: .top
+    )
+
     var body: some View {
         HStack(alignment: .center, spacing: 3) {
             ForEach(levels.indices, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(active ? Color.red.opacity(0.85) : Color.secondary.opacity(0.4))
-                    .frame(width: 4, height: max(4, levels[i] * 56))
+                    .fill(active ? Self.roseGradient : Self.idleGradient)
+                    .frame(width: 4, height: max(4, levels[i] * 72))
             }
         }
         .animation(.easeInOut(duration: 0.08), value: levels)

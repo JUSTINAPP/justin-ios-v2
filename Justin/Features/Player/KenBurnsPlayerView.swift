@@ -192,14 +192,23 @@ struct KenBurnsPlayerView: View {
     }
 
     // MARK: - Words
+    //
+    // Anchored at the bottom of the screen, growing upward.
+    // Capped at 180pt so very long text never reaches the X close button.
+    // Scrollable within the bounded area when content overflows.
 
     private func wordsView(_ text: String) -> some View {
-        Text(text)
-            .font(.custom("Caveat", size: 22))
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 32)
-            .padding(.bottom, 12)
+        ScrollView(.vertical, showsIndicators: false) {
+            Text(text)
+                .font(.custom("Caveat", size: 22))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: 180)
+        .padding(.horizontal, 32)
+        .padding(.bottom, 12)
     }
 
     // MARK: - Controls bar
