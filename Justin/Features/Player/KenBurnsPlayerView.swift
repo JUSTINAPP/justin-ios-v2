@@ -63,22 +63,26 @@ struct KenBurnsPlayerView: View {
     var body: some View {
         ZStack {
             gradientBackground
-            if mode == .photos { photoLayer } else { avatarLayer }
-            bottomScrim
-            if showCenterPlayButton && !playbackEnded { centerPlayButtonView }
-            VStack {
-                Spacer()
-                if let c = caption, !c.isEmpty { wordsView(c) }
-                if showControls { controlsBar }
+            if mode == .voiceOnly {
+                voiceOnlyContent
+            } else {
+                if mode == .photos { photoLayer } else { avatarLayer }
+                bottomScrim
+                if showCenterPlayButton && !playbackEnded { centerPlayButtonView }
+                VStack {
+                    Spacer()
+                    if let c = caption, !c.isEmpty { wordsView(c) }
+                    if showControls { controlsBar }
+                }
+                if playbackEnded && showControls { endedOverlay }
             }
-            if playbackEnded && showControls { endedOverlay }
         }
         .overlay(alignment: .topLeading) {
             if showControls { closeButton }
         }
         .ignoresSafeArea()
         .onAppear {
-            withAnimation(.easeInOut(duration: 7).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: 10).repeatForever(autoreverses: true)) {
                 gradientPhase = true
             }
             guard !hasStarted else { return }
@@ -98,16 +102,21 @@ struct KenBurnsPlayerView: View {
     }
 
     // MARK: - Gradient background
+    //
+    // Warm horizontal sunrise: deep aubergine at top, soft coral glow at bottom.
+    // The gradient band breathes slowly up and down (10 s loop) via startPoint/endPoint.
+    // Photos cover this completely; voice-only and words modes show it in full.
 
     private var gradientBackground: some View {
         LinearGradient(
-            colors: [
-                Color.lilacBg,
-                Color.brandPurple.opacity(0.30),
-                Color.brandRose.opacity(0.20),
+            stops: [
+                .init(color: Color(hex: "2b1d3a"), location: 0),
+                .init(color: Color(hex: "4a2c47"), location: 0.28),
+                .init(color: Color(hex: "8a4a5a"), location: 0.62),
+                .init(color: Color(hex: "d98a6a"), location: 1),
             ],
-            startPoint: gradientPhase ? .topLeading : .bottomLeading,
-            endPoint:   gradientPhase ? .bottomTrailing : .topTrailing
+            startPoint: gradientPhase ? .top : UnitPoint(x: 0.5, y: -0.12),
+            endPoint:   gradientPhase ? .bottom : UnitPoint(x: 0.5, y: 1.12)
         )
         .ignoresSafeArea()
     }
@@ -165,7 +174,91 @@ struct KenBurnsPlayerView: View {
         }
     }
 
-    // MARK: - Centre play button (preview mode only)
+    // MARK: - Voice-only layout
+    //
+    // Three distinct vertical zones — avatar never overlaps the play button.
+    //   Zone 1 (top)    — sender avatar + "from Name" label
+    //   Zone 2 (centre) — large waveform + large play/pause button
+    //   Zone 3 (bottom) — elapsed / total time
+
+    @ViewBuilder
+    private var voiceOnlyContent: some View {
+        VStack(spacing: 0) {
+
+            // Zone 1 — Avatar
+            VStack(spacing: 10) {
+                PersonAvatarView(
+                    name: fromName.isEmpty ? "Me" : fromName,
+                    size: 64,
+                    remoteAvatarURL: avatarURL
+                )
+                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1.5))
+
+                if !fromName.isEmpty {
+                    Text("from \(fromName)")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.60))
+                }
+            }
+            .padding(.top, 104) // clear status bar + close button
+
+            Spacer()
+
+            // Zone 2 — Waveform + Play
+            VStack(spacing: 28) {
+                VoiceWaveform(isPlaying: audio.isPlaying)
+                    .frame(maxWidth: 280)
+
+                largePlayButton
+            }
+
+            Spacer()
+
+            // Zone 3 — Time
+            if audio.duration > 0 {
+                Text("\(audio.currentTime.asTimeCode) / \(audio.duration.asTimeCode)")
+                    .font(.system(size: 14, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.45))
+            } else {
+                Color.clear.frame(height: 18)
+            }
+        }
+        .padding(.bottom, 52)
+    }
+
+    // Large white-circle play / pause / replay button for voice-only mode.
+    // Handles idle, playing, and ended states — no separate ended overlay needed.
+
+    private var largePlayButton: some View {
+        Button { onPlayTap() } label: {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.92))
+                    .frame(width: 80, height: 80)
+                    .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 4)
+
+                Group {
+                    if playbackEnded {
+                        Image(systemName: "arrow.circlepath")
+                            .font(.system(size: 26, weight: .semibold))
+                    } else if audio.isPlaying {
+                        Image(systemName: "pause")
+                            .font(.system(size: 26, weight: .semibold))
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 26, weight: .semibold))
+                            .offset(x: 3) // optical centre for play triangle
+                    }
+                }
+                .foregroundStyle(Color.ink)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.45 : 1)
+    }
+
+    // MARK: - Centre play button (preview mode — photos/words only)
 
     private var centerPlayButtonView: some View {
         Button { onPlayTap() } label: {
@@ -438,6 +531,53 @@ private struct WaveBar: View {
                           .repeatForever(autoreverses: true)
                           .delay(Double(index) * 0.06)
                     : .easeOut(duration: 0.3),
+                value: active
+            )
+            .onChange(of: isPlaying) { _, playing in active = playing }
+            .onAppear { active = isPlaying }
+    }
+}
+
+// MARK: - Voice-only large waveform (22 bars, reacts to audio.isPlaying)
+
+private struct VoiceWaveform: View {
+    var isPlaying: Bool = false
+    var body: some View {
+        HStack(alignment: .center, spacing: 3.5) {
+            ForEach(0..<22, id: \.self) { VoiceWaveBar(index: $0, isPlaying: isPlaying) }
+        }
+        .frame(height: 64)
+    }
+}
+
+private struct VoiceWaveBar: View {
+    let index:     Int
+    let isPlaying: Bool
+    @State private var active = false
+
+    private static let lo: [CGFloat] = [
+        0.12, 0.28, 0.10, 0.40, 0.18, 0.34, 0.10, 0.48, 0.16, 0.30,
+        0.22, 0.14, 0.36, 0.10, 0.42, 0.24, 0.12, 0.38, 0.20, 0.28, 0.14, 0.22,
+    ]
+    private static let hi: [CGFloat] = [
+        0.50, 0.88, 0.72, 0.65, 1.00, 0.80, 0.95, 0.58, 0.86, 0.70,
+        0.92, 0.68, 0.96, 0.55, 0.80, 0.90, 0.82, 0.62, 0.92, 0.72, 0.86, 0.68,
+    ]
+    private static let sp: [Double] = [
+        0.50, 0.62, 0.42, 0.55, 0.68, 0.45, 0.58, 0.48, 0.40, 0.60,
+        0.46, 0.55, 0.38, 0.64, 0.48, 0.56, 0.42, 0.50, 0.58, 0.44, 0.52, 0.46,
+    ]
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2.5)
+            .fill(.white.opacity(active ? 0.88 : 0.38))
+            .frame(width: 3.5, height: (active ? Self.hi[index] : Self.lo[index]) * 64 + 3)
+            .animation(
+                active
+                    ? .easeInOut(duration: Self.sp[index])
+                          .repeatForever(autoreverses: true)
+                          .delay(Double(index) * 0.04)
+                    : .easeOut(duration: 0.4),
                 value: active
             )
             .onChange(of: isPlaying) { _, playing in active = playing }

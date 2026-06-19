@@ -6,10 +6,15 @@ import Supabase
 /// The database function create_gift_with_message handles recipient resolution,
 /// gift find-or-create, and message insertion in one transaction, bypassing
 /// per-table RLS issues that affected the previous three-step client-side approach.
+struct GiftSaveResult {
+    let giftId: UUID?
+    let shareToken: String?
+}
+
 @MainActor
 final class GiftSaveService {
 
-    func save(model: RecordFlowModel, authorId: UUID) async throws {
+    func save(model: RecordFlowModel, authorId: UUID) async throws -> GiftSaveResult {
         // Generate a stable key for all storage paths in this upload.
         let uploadId = UUID()
 
@@ -80,6 +85,27 @@ final class GiftSaveService {
                     .execute()
                 print("[Save] caption saved")
             }
+
+            // Fetch the gift's id and share_token via the message FK — non-fatal.
+            var giftId: UUID? = nil
+            var shareToken: String? = nil
+            do {
+                let rows: [MessageGiftRow] = try await supabase
+                    .from("messages")
+                    .select("gift_id, gifts(id, share_token)")
+                    .eq("id", value: messageId.uuidString)
+                    .limit(1)
+                    .execute()
+                    .value
+                giftId     = rows.first?.gifts.id
+                shareToken = rows.first?.gifts.shareToken
+                print("[Save] share_token: \(shareToken?.prefix(8) ?? "none")…")
+            } catch {
+                print("[Save] share_token fetch failed (migration needed?): \(error)")
+            }
+
+            return GiftSaveResult(giftId: giftId, shareToken: shareToken)
+
         } catch {
             print("[Save] gift save failed: \(error)")
             print("[Save] localizedDescription: \(error.localizedDescription)")
@@ -88,6 +114,27 @@ final class GiftSaveService {
                 print("[Save] PostgrestError — detail: \(pgErr.detail ?? "nil"), hint: \(pgErr.hint ?? "nil")")
             }
             throw error
+        }
+    }
+
+    // MARK: - Token fetch helper
+
+    private struct MessageGiftRow: Codable {
+        let giftId: UUID
+        let gifts: GiftTokenInfo
+
+        struct GiftTokenInfo: Codable {
+            let id: UUID
+            let shareToken: String?
+            enum CodingKeys: String, CodingKey {
+                case id
+                case shareToken = "share_token"
+            }
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case giftId = "gift_id"
+            case gifts
         }
     }
 

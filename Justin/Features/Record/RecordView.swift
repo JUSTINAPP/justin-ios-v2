@@ -39,6 +39,12 @@ struct RecordFlowView: View {
                     case .when:    RecordStep4WhenView(path: $path)
                     case .preview: RecordStep5PreviewView(path: $path, onDone: { dismiss() })
                     case .invite:  InviteShareView(onDone: { dismiss() })
+                    case .share:
+                        GiftShareView(
+                            recipientName: model.recipientName,
+                            shareToken: model.savedShareToken,
+                            onDone: { dismiss() }
+                        )
                     }
                 }
         }
@@ -48,7 +54,7 @@ struct RecordFlowView: View {
 
 // MARK: - Step identifier
 
-enum RecordStep: Hashable { case voice, photos, when, preview, invite }
+enum RecordStep: Hashable { case voice, photos, when, preview, invite, share }
 
 // ─────────────────────────────────────────────
 // MARK: - Step 1: Who's it for?
@@ -871,25 +877,19 @@ struct RecordStep5PreviewView: View {
     private func saveAndFinish() async {
         guard let authorId = auth.currentPerson?.id else {
             print("[Save] error: no authenticated person — cannot save gift")
-            branch()
+            path.append(RecordStep.share)
             return
         }
         isSaving = true
         defer { isSaving = false }
         do {
-            try await GiftSaveService().save(model: model, authorId: authorId)
-            branch()
+            let result = try await GiftSaveService().save(model: model, authorId: authorId)
+            model.savedGiftId     = result.giftId
+            model.savedShareToken = result.shareToken
+            path.append(RecordStep.share)
         } catch {
             print("[Save] gift save failed: \(error)")
             saveError = "Couldn't upload your message. Please check your connection and try again."
-        }
-    }
-
-    private func branch() {
-        if model.isNewRecipient {
-            path.append(RecordStep.invite)
-        } else {
-            onDone()
         }
     }
 }

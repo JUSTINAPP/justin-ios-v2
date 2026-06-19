@@ -38,3 +38,14 @@ Justin is a private iOS app for building someone you love a "gift of your voice"
 ## Tone
 
 Warm, human, calm, intentional. Never clinical, cheesy, or feed-like. No streaks/likes/endless scroll. Avoid em dashes in user-facing copy.
+## Current build state (as of this session)
+
+Working & committed: phone/OTP auth; record flow (voice + optional photos + optional typed words/caption) saving via atomic RPC create_gift_with_message; People hub (add/edit people directly with dates/notes/photos, no gift required; send-a-message from a person skips recipient selection); simplified v1 player; live web taste page (separate website project) at justinapp.com.au/g/{share_token}; gifts have share_token + in-app share screen.
+
+DECISION — v1 player is SIMPLIFIED (Ken Burns DEFERRED to v2): calm player on a sunrise gradient — voice-only (avatar + gradient + waveform), voice+words (words anchored bottom), voice+photos (gentle cross-fade, NO pan/zoom motion). Ken Burns real-time animation was too hard to debug in the simulator; rebuild on a real device for v2.
+
+Schema notes: gifts(author_id, recipient_id, share_token); people(display_name, avatar_url [path in `photos` bucket under avatars/{owner_id}/], avatar_color); messages(voice_url, photo_urls, caption). Avatars live in the `photos` bucket, not a separate avatars bucket. Storage RLS still broad — tighten before launch.
+
+NEXT (keystone): CONVERGENCE — when a user verifies their phone, attach gifts whose recipient_phone matches (set recipient_id, show on Shelf), including gifts sent before they joined. Unlocks: real "more messages" hook, in-app/push delivery to existing users, "gift opened" signal to the author, and a two-message first-send nudge (all parked, all depend on convergence).
+
+Deployment target iOS 18.0. App is live on App Store in an OLD broken format (apps.apple.com/au/app/justin/id1597447761) — replace only once sending works end-to-end + safety reviewed. See BUILD-ROADMAP.md for the full cross-project map.

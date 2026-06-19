@@ -23,6 +23,9 @@ final class RecordFlowModel: ObservableObject {
     @Published var releaseFeeling: String = ""
     @Published var hiddenUntilRelease: Bool = false
     @Published var messageCaption: String = ""
+    // Set after a successful save — used by the share screen
+    @Published var savedGiftId: UUID? = nil
+    @Published var savedShareToken: String? = nil
 
     var hasRecording: Bool { audioURL != nil }
     var hasPhotos: Bool { !selectedImages.isEmpty }

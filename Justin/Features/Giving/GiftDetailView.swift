@@ -11,6 +11,8 @@ struct GiftDetailView: View {
     @State private var messages: [Message] = []
     @State private var isLoading = false
     @State private var showRecord = false
+    @State private var showShare = false
+    @State private var shareToken: String? = nil
     @State private var messageToDelete: Message?
     @State private var showDeleteConfirm = false
     @State private var playingMessage: Message? = nil
@@ -55,6 +57,17 @@ struct GiftDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.cream, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            if giftId != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showShare = true } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(Color.ink)
+                    }
+                }
+            }
+        }
         .alert("Delete this message?", isPresented: $showDeleteConfirm, presenting: messageToDelete) { msg in
             Button("Delete", role: .destructive) {
                 Task { await deleteMessage(msg) }
@@ -77,6 +90,16 @@ struct GiftDetailView: View {
                 caption: msg.caption,
                 avatarURL: authorAvatarURL
             )
+        }
+        .sheet(isPresented: $showShare) {
+            NavigationStack {
+                GiftShareView(
+                    recipientName: recipientName,
+                    shareToken: shareToken,
+                    onDone: { showShare = false }
+                )
+            }
+            .environmentObject(auth)
         }
         .task { await loadMessages() }
         .onChange(of: showRecord) { _, newValue in
@@ -262,6 +285,11 @@ struct GiftDetailView: View {
 
     // MARK: - Data
 
+    private struct GiftTokenRow: Codable {
+        let shareToken: String?
+        enum CodingKeys: String, CodingKey { case shareToken = "share_token" }
+    }
+
     private func loadMessages() async {
         guard let giftId else { return }
         isLoading = true
@@ -278,6 +306,20 @@ struct GiftDetailView: View {
             print("[GiftDetail] loaded \(rows.count) messages")
         } catch {
             print("[GiftDetail] fetch failed: \(error)")
+        }
+
+        // Load the gift's share_token for the share sheet
+        do {
+            let rows: [GiftTokenRow] = try await supabase
+                .from("gifts")
+                .select("share_token")
+                .eq("id", value: giftId.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            shareToken = rows.first?.shareToken
+        } catch {
+            print("[GiftDetail] share_token fetch failed: \(error)")
         }
 
         // Load the author's own avatar for the player's sender circle.
