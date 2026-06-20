@@ -1,4 +1,5 @@
 import SwiftUI
+import Supabase
 
 struct GivingView: View {
     @EnvironmentObject var auth: AuthService
@@ -17,9 +18,9 @@ struct GivingView: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 56, height: 56)
-                    .background(Color.ink)
+                    .background(Color.brandPurple)
                     .clipShape(Circle())
-                    .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
+                    .shadow(color: Color.brandPurple.opacity(0.35), radius: 8, x: 0, y: 4)
             }
             .padding(.bottom, 20)
         }
@@ -133,7 +134,7 @@ struct GivingView: View {
 
     private func giftCard(_ gift: GivingViewModel.GiftRow) -> some View {
         HStack(spacing: 14) {
-            InitialsAvatar(name: gift.recipientName, size: 44)
+            CachedAvatarView(storagePath: gift.avatarStoragePath, name: gift.recipientName, size: 44)
             VStack(alignment: .leading, spacing: 3) {
                 Text("For \(gift.recipientName)")
                     .font(.system(.body).weight(.medium))
@@ -173,6 +174,7 @@ struct GivingView: View {
         }
     }
 }
+
 
 #Preview {
     NavigationStack { GivingView() }

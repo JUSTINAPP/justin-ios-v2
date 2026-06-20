@@ -1,27 +1,16 @@
 import SwiftUI
 
 struct WelcomeView: View {
-    @State private var gradientPhase = false
-
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color.lilacBg,
-                    Color.brandPurple.opacity(0.30),
-                    Color.brandRose.opacity(0.20),
-                ],
-                startPoint: gradientPhase ? .topLeading : .bottomLeading,
-                endPoint:   gradientPhase ? .bottomTrailing : .topTrailing
-            )
-            .ignoresSafeArea()
+            SunriseGradientBackground()
 
             VStack(spacing: 0) {
                 Spacer()
 
                 VStack(spacing: 16) {
                     HStack(spacing: 0) {
-                        Text("just").foregroundStyle(Color.ink)
+                        Text("just").foregroundStyle(.white)
                         Text("in").foregroundStyle(Color.brandRose)
                     }
                     .font(.system(size: 40, weight: .bold))
@@ -29,7 +18,7 @@ struct WelcomeView: View {
 
                     Text("A gift for someone you love —\ntheir voice, when they need it.")
                         .font(.system(.body))
-                        .foregroundStyle(Color.ink.opacity(0.55))
+                        .foregroundStyle(.white.opacity(0.65))
                         .multilineTextAlignment(.center)
                 }
                 .padding(.horizontal, 28)
@@ -39,10 +28,10 @@ struct WelcomeView: View {
                 NavigationLink(destination: PhoneEntryView()) {
                     Text("Get started")
                         .font(.system(.body, weight: .semibold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(Color.ink)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
-                        .background(Color.brandPurple)
+                        .background(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
                 .buttonStyle(.plain)
@@ -51,11 +40,6 @@ struct WelcomeView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 7).repeatForever(autoreverses: true)) {
-                gradientPhase = true
-            }
-        }
     }
 }
 

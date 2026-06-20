@@ -17,6 +17,7 @@ struct GiftDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var playingMessage: Message? = nil
     @State private var authorAvatarURL: URL?
+    @State private var recipientAvatarPath: String? = nil
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -40,16 +41,16 @@ struct GiftDetailView: View {
             Button { showRecord = true } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(.body, weight: .bold))
                     Text("Add a message")
-                        .font(.system(.subheadline).weight(.semibold))
+                        .font(.system(.body, weight: .semibold))
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 13)
-                .background(Color.ink)
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(Color.brandPurple)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .shadow(color: Color.brandPurple.opacity(0.35), radius: 8, x: 0, y: 4)
             }
             .padding(.bottom, 20)
         }
@@ -60,7 +61,13 @@ struct GiftDetailView: View {
         .toolbar {
             if giftId != nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showShare = true } label: {
+                    Button {
+                        print("[ShareDebug] GiftDetailView share button tapped")
+                        print("[ShareDebug]   giftId:     \(giftId?.uuidString ?? "nil")")
+                        print("[ShareDebug]   shareToken: \(shareToken ?? "nil")")
+                        print("[ShareDebug]   SOURCE: GiftDetailView @State shareToken (loaded in loadMessages)")
+                        showShare = true
+                    } label: {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(Color.ink)
@@ -112,7 +119,7 @@ struct GiftDetailView: View {
     private var headerSection: some View {
         Section {
             HStack(spacing: 16) {
-                InitialsAvatar(name: recipientName, size: 64)
+                CachedAvatarView(storagePath: recipientAvatarPath, name: recipientName, size: 64)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("For \(recipientName)")
                         .font(.system(.title2).weight(.semibold))
@@ -318,6 +325,7 @@ struct GiftDetailView: View {
                 .execute()
                 .value
             shareToken = rows.first?.shareToken
+            print("[ShareDebug] GiftDetailView loaded shareToken: \(shareToken ?? "nil") for giftId: \(giftId.uuidString)")
         } catch {
             print("[GiftDetail] share_token fetch failed: \(error)")
         }
@@ -327,6 +335,28 @@ struct GiftDetailView: View {
             authorAvatarURL = try? await supabase.storage
                 .from("photos")
                 .createSignedURL(path: path, expiresIn: 3600)
+        }
+
+        // Load recipient avatar path from person_overrides (same source as People + Giving list).
+        if let personId = recipientPersonId, let ownerId = auth.currentPerson?.id {
+            do {
+                struct AvatarRow: Decodable {
+                    let avatarStoragePath: String?
+                    enum CodingKeys: String, CodingKey { case avatarStoragePath = "avatar_storage_path" }
+                }
+                let rows: [AvatarRow] = try await supabase
+                    .from("person_overrides")
+                    .select("avatar_storage_path")
+                    .eq("owner_id", value: ownerId.uuidString)
+                    .eq("person_id", value: personId.uuidString)
+                    .limit(1)
+                    .execute()
+                    .value
+                recipientAvatarPath = rows.first?.avatarStoragePath
+                print("[GiftDetail] recipientAvatarPath = \(recipientAvatarPath ?? "nil")")
+            } catch {
+                print("[GiftDetail] avatar path fetch failed: \(error)")
+            }
         }
     }
 

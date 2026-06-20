@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import Supabase
 
 struct PersonDetailView: View {
@@ -18,13 +19,14 @@ struct PersonDetailView: View {
     @State private var relationship = ""
     @State private var notes = ""
     @State private var occasions: [LoadedOccasion] = []
-    @State private var avatarURL: URL?
-
+    @State private var avatarStoragePath: String? = nil
     @State private var isLoading = false
     @State private var showEditPerson = false
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
     @State private var showRecord = false
+    @State private var avatarPickerItem: PhotosPickerItem?
+    @State private var isUploadingAvatar = false
 
     private static let dayMonthFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "d MMM"; return f
@@ -86,6 +88,10 @@ struct PersonDetailView: View {
             Text("This removes them and their saved dates.")
         }
         .task { await loadPerson() }
+        .onChange(of: avatarPickerItem) { _, item in
+            guard let item else { return }
+            Task { await uploadAvatar(item: item) }
+        }
         .fullScreenCover(isPresented: $showRecord) {
             RecordFlowView(prefillRecipientName: name, prefillRecipientId: person.id)
         }
@@ -122,7 +128,30 @@ struct PersonDetailView: View {
             HStack {
                 Spacer()
                 VStack(spacing: 8) {
-                    PersonAvatarView(name: name, size: 80, remoteAvatarURL: avatarURL)
+                    PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+                        ZStack(alignment: .bottomTrailing) {
+                            CachedAvatarView(storagePath: avatarStoragePath, name: name, size: 80)
+                                .overlay {
+                                    if isUploadingAvatar {
+                                        Circle()
+                                            .fill(.black.opacity(0.35))
+                                        ProgressView().tint(.white)
+                                    }
+                                }
+
+                            // Camera badge — makes it clear the avatar is tappable
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(5)
+                                .background(Color.brandPurple)
+                                .clipShape(Circle())
+                                .offset(x: 4, y: 4)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isUploadingAvatar)
+
                     if !relationship.isEmpty {
                         Text(relationship)
                             .font(.subheadline)
@@ -177,6 +206,73 @@ struct PersonDetailView: View {
         }
     }
 
+    // MARK: - Avatar upload
+
+    private func uploadAvatar(item: PhotosPickerItem) async {
+        guard let ownerId = auth.currentPerson?.id else {
+            print("[Avatar] guard failed — no ownerId")
+            return
+        }
+        guard let rawData = try? await item.loadTransferable(type: Data.self),
+              let originalImage = UIImage(data: rawData),
+              let data = compressedAvatarData(from: originalImage) else {
+            print("[Avatar] guard failed — could not load/compress image")
+            return
+        }
+        print("[Avatar] image: \(rawData.count / 1024) KB raw → \(data.count / 1024) KB compressed")
+
+        isUploadingAvatar = true
+        defer { isUploadingAvatar = false }
+
+        print("[Avatar] WRITE — before: avatarStoragePath = \(avatarStoragePath ?? "nil")")
+
+        let uploadId = UUID().uuidString
+        let path = "avatars/\(ownerId)/\(person.id)/\(uploadId).jpg"
+        print("[Avatar] uploading to path: \(path)  size=\(data.count) bytes")
+
+        do {
+            try await supabase.storage
+                .from("photos")
+                .upload(path, data: data,
+                        options: FileOptions(contentType: "image/jpeg", upsert: false))
+            print("[Avatar] upload succeeded")
+
+            // Upsert only avatar_storage_path — leaves relationship/notes untouched.
+            struct AvatarPathUpsert: Encodable {
+                let ownerId: UUID
+                let personId: UUID
+                let avatarStoragePath: String
+                enum CodingKeys: String, CodingKey {
+                    case ownerId           = "owner_id"
+                    case personId          = "person_id"
+                    case avatarStoragePath = "avatar_storage_path"
+                }
+            }
+            let upsertPayload = AvatarPathUpsert(ownerId: ownerId, personId: person.id, avatarStoragePath: path)
+            print("[Avatar] WRITE → person_overrides.avatar_storage_path = \(path)")
+            try await supabase
+                .from("person_overrides")
+                .upsert(upsertPayload, onConflict: "owner_id,person_id")
+                .execute()
+            print("[Avatar] person_overrides upsert succeeded (onConflict owner_id,person_id)")
+
+            // Cache the uploaded image immediately so CachedAvatarView shows it
+            // the moment avatarStoragePath switches to the new path — no second fetch needed.
+            if let uiImage = UIImage(data: data) {
+                AvatarCache.shared.store(uiImage, for: path)
+                print("[Avatar] image cached for path \(path)")
+            }
+            avatarStoragePath = path
+            print("[Avatar] WRITE — after: avatarStoragePath = \(path)")
+
+        } catch {
+            print("[Avatar] FAILED — error: \(error)")
+            if let pgErr = error as? PostgrestError {
+                print("[Avatar] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+            }
+        }
+    }
+
     // MARK: - Load
 
     private func loadPerson() async {
@@ -219,11 +315,10 @@ struct PersonDetailView: View {
             if let o = overrides.first {
                 relationship = o.relationship ?? ""
                 notes = o.notes ?? ""
-                if let path = o.avatarStoragePath {
-                    avatarURL = try? await supabase.storage
-                        .from("photos")
-                        .createSignedURL(path: path, expiresIn: 3600)
-                }
+                avatarStoragePath = o.avatarStoragePath
+                print("[Avatar] READ ← person_overrides.avatar_storage_path = \(o.avatarStoragePath ?? "nil")")
+            } else {
+                print("[Avatar] READ — no person_overrides row found for this person")
             }
         } catch {
             print("[PersonDetail] overrides load skipped: \(error)")

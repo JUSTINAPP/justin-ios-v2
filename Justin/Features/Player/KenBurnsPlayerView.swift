@@ -44,9 +44,6 @@ struct KenBurnsPlayerView: View {
     @State private var slideshowStarted = false
     @State private var slideshowTask:   Task<Void, Never>? = nil
 
-    // Background drift
-    @State private var gradientPhase = false
-
     private static let fadeDuration: Double = 0.7
 
     private var activeImages: [UIImage] { !localImages.isEmpty ? localImages : loadedImages }
@@ -82,9 +79,6 @@ struct KenBurnsPlayerView: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            withAnimation(.easeInOut(duration: 10).repeatForever(autoreverses: true)) {
-                gradientPhase = true
-            }
             guard !hasStarted else { return }
             hasStarted = true
             if showControls || showCenterPlayButton { Task { await loadMedia() } }
@@ -102,23 +96,9 @@ struct KenBurnsPlayerView: View {
     }
 
     // MARK: - Gradient background
-    //
-    // Warm horizontal sunrise: deep aubergine at top, soft coral glow at bottom.
-    // The gradient band breathes slowly up and down (10 s loop) via startPoint/endPoint.
-    // Photos cover this completely; voice-only and words modes show it in full.
 
     private var gradientBackground: some View {
-        LinearGradient(
-            stops: [
-                .init(color: Color(hex: "2b1d3a"), location: 0),
-                .init(color: Color(hex: "4a2c47"), location: 0.28),
-                .init(color: Color(hex: "8a4a5a"), location: 0.62),
-                .init(color: Color(hex: "d98a6a"), location: 1),
-            ],
-            startPoint: gradientPhase ? .top : UnitPoint(x: 0.5, y: -0.12),
-            endPoint:   gradientPhase ? .bottom : UnitPoint(x: 0.5, y: 1.12)
-        )
-        .ignoresSafeArea()
+        SunriseGradientBackground()
     }
 
     // MARK: - Photo layer (constrained, non-interactive, cross-fade only)

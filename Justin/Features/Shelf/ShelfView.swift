@@ -33,6 +33,8 @@ struct ShelfView: View {
 
     @State private var currentlyPlaying: ShelfItem?
     @State private var singleFeelingMessage: ShelfMessage?
+    @State private var showGiftsNotice = false
+    @State private var giftsNoticeCount = 0
 
     var body: some View {
         Group {
@@ -77,9 +79,29 @@ struct ShelfView: View {
                 fromName: msg.from
             ) { singleFeelingMessage = nil }
         }
+        .safeAreaInset(edge: .top) {
+            if showGiftsNotice {
+                giftsArrivalNotice
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.45), value: showGiftsNotice)
         .onAppear {
             guard let id = auth.currentPerson?.id else { return }
             Task { await viewModel.fetch(recipientId: id) }
+
+            // Show a warm arrival notice if convergence just attached gifts.
+            if auth.pendingGiftsCount > 0 {
+                giftsNoticeCount = auth.pendingGiftsCount
+                auth.pendingGiftsCount = 0
+                withAnimation(.spring(duration: 0.45)) { showGiftsNotice = true }
+                Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    withAnimation(.easeOut(duration: 0.4)) { showGiftsNotice = false }
+                }
+            }
         }
     }
 
@@ -333,6 +355,40 @@ struct ShelfView: View {
         .opacity(0.07)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    // MARK: - Gifts arrival notice
+
+    private var giftsArrivalNotice: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.3)) { showGiftsNotice = false }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "gift.fill")
+                    .font(.system(size: 14))
+                Text(giftsNoticeCount == 1
+                    ? "A gift just landed on your shelf"
+                    : "\(giftsNoticeCount) gifts just landed on your shelf"
+                )
+                .font(.system(.subheadline).weight(.semibold))
+                Spacer()
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(0.6)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                LinearGradient(
+                    colors: [Color.brandPurple, Color.brandRose],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: Color.brandPurple.opacity(0.22), radius: 8, x: 0, y: 3)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Section header

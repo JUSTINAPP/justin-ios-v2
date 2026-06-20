@@ -106,7 +106,13 @@ struct AddPersonView: View {
             }
         }
         .onChange(of: avatarPickerItem) { _, item in
-            Task { avatarImageData = try? await item?.loadTransferable(type: Data.self) }
+            Task {
+                guard let rawData = try? await item?.loadTransferable(type: Data.self),
+                      let uiImage = UIImage(data: rawData),
+                      let compressed = compressedAvatarData(from: uiImage) else { return }
+                print("[AddPerson] avatar: \(rawData.count / 1024) KB raw → \(compressed.count / 1024) KB compressed")
+                avatarImageData = compressed
+            }
         }
     }
 
@@ -458,6 +464,24 @@ struct AddPersonView: View {
             }
             print("======= [AddPerson] step 1 OK resolvedId=\(resolvedId) =======")
 
+            // ── Auth state at write time ─────────────────────────────────────
+            // Log before any write so we can see whether auth.uid() will be null
+            // server-side (which causes 403 on storage and 42501 on RLS writes).
+            let _authSession = supabase.auth.currentSession
+            print("[AuthDebug create] ── session at write time ──────────────────")
+            print("[AuthDebug create] currentSession: \(_authSession != nil ? "EXISTS" : "NIL ← auth.uid() will be NULL server-side")")
+            if let s = _authSession {
+                print("[AuthDebug create] session.user.id:   \(s.user.id)")
+                print("[AuthDebug create] accessToken prefix: \(s.accessToken.prefix(24))…")
+                print("[AuthDebug create] isExpired:          \(s.isExpired)")
+                print("[AuthDebug create] expiresAt (unix):   \(s.expiresAt)  now: \(Date().timeIntervalSince1970)")
+            }
+            print("[AuthDebug create] currentUser?.id:    \(supabase.auth.currentUser?.id.uuidString ?? "NIL")")
+            print("[AuthDebug create] auth.currentPerson: \(auth.currentPerson?.id.uuidString ?? "NIL")")
+            print("[AuthDebug create] AuthService.state:  \(auth.state)")
+            print("[AuthDebug create] ─────────────────────────────────────────────")
+            // ────────────────────────────────────────────────────────────────────
+
             // Avatar upload (non-fatal)
             var avatarPath: String? = nil
             if let data = avatarImageData {
@@ -558,6 +582,22 @@ struct AddPersonView: View {
                 .update(PersonUpdate(displayName: trimmedName, phone: phone.isEmpty ? nil : phone))
                 .eq("id", value: pid.uuidString)
                 .execute()
+
+            // ── Auth state at write time ─────────────────────────────────────
+            let _authSessionU = supabase.auth.currentSession
+            print("[AuthDebug update] ── session at write time ──────────────────")
+            print("[AuthDebug update] currentSession: \(_authSessionU != nil ? "EXISTS" : "NIL ← auth.uid() will be NULL server-side")")
+            if let s = _authSessionU {
+                print("[AuthDebug update] session.user.id:   \(s.user.id)")
+                print("[AuthDebug update] accessToken prefix: \(s.accessToken.prefix(24))…")
+                print("[AuthDebug update] isExpired:          \(s.isExpired)")
+                print("[AuthDebug update] expiresAt (unix):   \(s.expiresAt)  now: \(Date().timeIntervalSince1970)")
+            }
+            print("[AuthDebug update] currentUser?.id:    \(supabase.auth.currentUser?.id.uuidString ?? "NIL")")
+            print("[AuthDebug update] auth.currentPerson: \(auth.currentPerson?.id.uuidString ?? "NIL")")
+            print("[AuthDebug update] AuthService.state:  \(auth.state)")
+            print("[AuthDebug update] ─────────────────────────────────────────────")
+            // ────────────────────────────────────────────────────────────────────
 
             // Preserve existing avatar path unless a new photo was picked.
             var avatarPath: String? = existingAvatarStoragePath

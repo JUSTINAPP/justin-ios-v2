@@ -16,6 +16,9 @@ final class AuthService: ObservableObject {
     @Published var currentPerson: Person?
     @Published var isLoading = false
     @Published var errorMessage: String?
+    /// Count of gifts that were re-pointed to this user during convergence.
+    /// ShelfView reads this once on appear and resets it to 0 after showing the notice.
+    @Published var pendingGiftsCount: Int = 0
 
     private var pendingUserId: UUID?
     private var pendingPhone: String?
@@ -85,6 +88,8 @@ final class AuthService: ObservableObject {
                 .value
             print("[Name] save succeeded — person id: \(person.id)")
             currentPerson = person
+            // Convergence before signedIn so the Shelf fetch sees re-pointed gifts immediately.
+            await runConvergence(userId: userId, phone: phone)
             pendingUserId = nil
             pendingPhone = nil
             state = .signedIn
@@ -147,6 +152,8 @@ final class AuthService: ObservableObject {
                 .value
             if let person = rows.first {
                 currentPerson = person
+                // Convergence before signedIn so the Shelf fetch sees re-pointed gifts immediately.
+                await runConvergence(userId: userId, phone: phone)
                 state = .signedIn
             } else {
                 pendingUserId = userId
@@ -157,6 +164,39 @@ final class AuthService: ObservableObject {
             pendingUserId = userId
             pendingPhone = phone
             state = .awaitingName
+        }
+    }
+
+    // MARK: - Gift convergence
+
+    /// Calls the DB function that re-points any placeholder gifts addressed to
+    /// p_phone over to this verified user. Safe to call on every login —
+    /// idempotent, returns 0 if nothing new to attach.
+    private func runConvergence(userId: UUID, phone: String) async {
+        guard !phone.isEmpty else { return }
+        do {
+            let count: Int = try await supabase
+                .rpc("converge_gifts_on_verify", params: ConvergeParams(pUserId: userId, pPhone: phone))
+                .execute()
+                .value
+            if count > 0 {
+                print("[Converge] \(count) gift(s) attached to user \(userId)")
+                pendingGiftsCount = count
+            } else {
+                print("[Converge] no new gifts to attach")
+            }
+        } catch {
+            // Non-fatal — log and continue. Convergence will retry on next login.
+            print("[Converge] RPC failed (non-fatal): \(error)")
+        }
+    }
+
+    private struct ConvergeParams: Encodable {
+        let pUserId: UUID
+        let pPhone: String
+        enum CodingKeys: String, CodingKey {
+            case pUserId = "p_user_id"
+            case pPhone  = "p_phone"
         }
     }
 

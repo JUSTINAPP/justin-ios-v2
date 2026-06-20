@@ -56,7 +56,13 @@ struct PeopleView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { showAddPerson = true } label: {
                     Image(systemName: "person.badge.plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Color.brandPurple)
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
             }
         }
         .navigationDestination(for: PeopleNavDest.self) { dest in
@@ -130,7 +136,7 @@ struct PeopleView: View {
         // so tapping a tag fires only the tag's link, not the card's link.
         NavigationLink(value: PeopleNavDest.detail(person)) {
             HStack(spacing: 14) {
-                StorageAvatarView(name: person.name, size: 48, storagePath: person.avatarStoragePath)
+                CachedAvatarView(storagePath: person.avatarStoragePath, name: person.name, size: 48)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(person.name)
@@ -188,25 +194,6 @@ struct PeopleView: View {
     }
 }
 
-// Async helper: resolves a storage path to a signed URL and shows PersonAvatarView.
-// Renders initials while loading or when no path is set.
-private struct StorageAvatarView: View {
-    let name: String
-    let size: CGFloat
-    let storagePath: String?
-
-    @State private var url: URL?
-
-    var body: some View {
-        PersonAvatarView(name: name, size: size, remoteAvatarURL: url)
-            .task(id: storagePath) {
-                guard let path = storagePath else { url = nil; return }
-                url = try? await supabase.storage
-                    .from("photos")
-                    .createSignedURL(path: path, expiresIn: 3600)
-            }
-    }
-}
 
 #Preview {
     NavigationStack { PeopleView() }

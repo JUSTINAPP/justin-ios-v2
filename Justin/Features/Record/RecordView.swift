@@ -40,6 +40,11 @@ struct RecordFlowView: View {
                     case .preview: RecordStep5PreviewView(path: $path, onDone: { dismiss() })
                     case .invite:  InviteShareView(onDone: { dismiss() })
                     case .share:
+                        let _ = {
+                            print("[ShareDebug] navigationDestination .share — model.savedShareToken at view-build time: \(model.savedShareToken ?? "nil")")
+                            print("[ShareDebug] navigationDestination .share — model.savedGiftId at view-build time: \(model.savedGiftId?.uuidString ?? "nil")")
+                            print("[ShareDebug] navigationDestination .share — SOURCE: RecordFlowView model (id: \(ObjectIdentifier(model)))")
+                        }()
                         GiftShareView(
                             recipientName: model.recipientName,
                             shareToken: model.savedShareToken,
@@ -875,8 +880,12 @@ struct RecordStep5PreviewView: View {
     }
 
     private func saveAndFinish() async {
+        // Snapshot any pre-existing token to spot stale-model reuse
+        print("[ShareDebug] saveAndFinish — model.savedShareToken BEFORE save: \(model.savedShareToken ?? "nil")")
+        print("[ShareDebug] saveAndFinish — model.savedGiftId    BEFORE save: \(model.savedGiftId?.uuidString ?? "nil")")
+
         guard let authorId = auth.currentPerson?.id else {
-            print("[Save] error: no authenticated person — cannot save gift")
+            print("[ShareDebug] saveAndFinish — no authenticated person, navigating to .share with nil token")
             path.append(RecordStep.share)
             return
         }
@@ -884,9 +893,25 @@ struct RecordStep5PreviewView: View {
         defer { isSaving = false }
         do {
             let result = try await GiftSaveService().save(model: model, authorId: authorId)
+
+            print("[ShareDebug] saveAndFinish — GiftSaveService returned giftId: \(result.giftId?.uuidString ?? "nil"), shareToken: \(result.shareToken ?? "nil"), recipientIsVerified: \(result.recipientIsVerified)")
+
             model.savedGiftId     = result.giftId
             model.savedShareToken = result.shareToken
-            path.append(RecordStep.share)
+
+            print("[ShareDebug] saveAndFinish — model.savedShareToken AFTER set: \(model.savedShareToken ?? "nil")")
+
+            if result.recipientIsVerified {
+                // Recipient has the Justin app — message lands on their shelf in-app.
+                // No shareable link needed; skip the share screen.
+                print("[ShareDebug] recipient IS verified → onDone() (in-app delivery, no share screen)")
+                onDone()
+            } else {
+                // Recipient doesn't have the app yet — show the share screen.
+                // SQL creates a fresh gift + token per message (see create_gift_with_message migration).
+                print("[ShareDebug] recipient NOT verified → navigating to .share")
+                path.append(RecordStep.share)
+            }
         } catch {
             print("[Save] gift save failed: \(error)")
             saveError = "Couldn't upload your message. Please check your connection and try again."

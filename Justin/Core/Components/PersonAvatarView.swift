@@ -28,6 +28,9 @@ struct PersonAvatarView: View {
                     .resizable()
                     .scaledToFill()
             } else if let url = remoteAvatarURL {
+                // .id(url) forces SwiftUI to create a fresh AsyncImage whenever the
+                // URL changes, so a replaced avatar loads immediately instead of
+                // keeping the previous image in the reused view node.
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
@@ -36,6 +39,7 @@ struct PersonAvatarView: View {
                         InitialsAvatar(name: name, size: size)
                     }
                 }
+                .id(url)
             } else {
                 InitialsAvatar(name: name, size: size)
             }

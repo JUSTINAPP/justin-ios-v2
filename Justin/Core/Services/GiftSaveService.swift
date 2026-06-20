@@ -9,6 +9,9 @@ import Supabase
 struct GiftSaveResult {
     let giftId: UUID?
     let shareToken: String?
+    /// True when the recipient has a verified Justin account — message lands on their
+    /// shelf in-app and no share link is needed. False for non-users (share screen shown).
+    let recipientIsVerified: Bool
 }
 
 @MainActor
@@ -45,6 +48,28 @@ final class GiftSaveService {
             }
         }
         print("[Upload] photos uploaded: \(photoPaths.count)")
+
+        // ── Check recipient verification status ──────────────────────────────
+        // Determines UX (share screen vs. in-app delivery) and controls whether
+        // the SQL function creates a new gift or reuses an existing one.
+        var recipientIsVerified = false
+        if let recipientId = model.recipientPersonId {
+            struct VerifiedRow: Decodable {
+                let isVerified: Bool
+                enum CodingKeys: String, CodingKey { case isVerified = "is_verified" }
+            }
+            let rows: [VerifiedRow] = (try? await supabase
+                .from("people")
+                .select("is_verified")
+                .eq("id", value: recipientId.uuidString)
+                .limit(1)
+                .execute()
+                .value) ?? []
+            recipientIsVerified = rows.first?.isVerified ?? false
+            print("[Save] recipient \(recipientId) — is_verified: \(recipientIsVerified)")
+        } else {
+            print("[Save] recipient has no personId yet — treating as non-verified (new person)")
+        }
 
         let params = CreateGiftParams(
             pRecipientName: model.recipientName,
@@ -99,12 +124,19 @@ final class GiftSaveService {
                     .value
                 giftId     = rows.first?.gifts.id
                 shareToken = rows.first?.gifts.shareToken
-                print("[Save] share_token: \(shareToken?.prefix(8) ?? "none")…")
+                // These two lines are the key diagnostic: on a second message to the
+                // same non-verified recipient they should differ from the first save.
+                print("[Save] ── gift/token for this message ──────────────────────────")
+                print("[Save] messageId:   \(messageId)")
+                print("[Save] giftId:      \(giftId?.uuidString ?? "nil")")
+                print("[Save] shareToken:  \(shareToken ?? "nil")")
+                print("[Save] isVerified:  \(recipientIsVerified)")
+                print("[Save] ────────────────────────────────────────────────────────")
             } catch {
                 print("[Save] share_token fetch failed (migration needed?): \(error)")
             }
 
-            return GiftSaveResult(giftId: giftId, shareToken: shareToken)
+            return GiftSaveResult(giftId: giftId, shareToken: shareToken, recipientIsVerified: recipientIsVerified)
 
         } catch {
             print("[Save] gift save failed: \(error)")

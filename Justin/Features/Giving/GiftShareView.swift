@@ -60,7 +60,16 @@ struct GiftShareView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.cream, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .onAppear { composeMessageIfNeeded() }
+        .onAppear {
+            print("[ShareDebug] GiftShareView.onAppear")
+            print("[ShareDebug]   shareToken received: \(shareToken ?? "nil")")
+            print("[ShareDebug]   recipientName:       \(recipientName)")
+            print("[ShareDebug]   linkString:          \(linkString)")
+            composeMessageIfNeeded()
+        }
+        .onChange(of: shareToken) { oldToken, newToken in
+            print("[ShareDebug] GiftShareView.onChange(shareToken): \(oldToken ?? "nil") → \(newToken ?? "nil")")
+        }
         .onChange(of: shareToken) { _, newToken in
             guard let token = newToken else { return }
             let newLink = "https://justinapp.com.au/g/\(token)"
@@ -133,23 +142,29 @@ struct GiftShareView: View {
 
     private var messageEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your message")
-                .font(.system(.caption, weight: .semibold))
-                .foregroundStyle(Color.ink.opacity(0.4))
-                .textCase(.uppercase)
-                .kerning(0.5)
+            HStack(spacing: 6) {
+                Text("Your message")
+                    .font(.system(.caption, weight: .semibold))
+                    .foregroundStyle(Color.ink.opacity(0.4))
+                    .textCase(.uppercase)
+                    .kerning(0.5)
+                Spacer()
+                Label("edit freely", systemImage: "pencil")
+                    .font(.system(.caption))
+                    .foregroundStyle(Color.brandPurple.opacity(0.65))
+            }
 
             TextEditor(text: $shareMessage)
                 .scrollContentBackground(.hidden)
                 .font(.system(.body))
                 .foregroundStyle(Color.ink)
-                .frame(minHeight: 120, maxHeight: 200)
+                .frame(minHeight: 80, maxHeight: 160)
                 .padding(12)
                 .background(Color.white)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay {
                     RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(Color.ink.opacity(0.08), lineWidth: 1)
+                        .strokeBorder(Color.brandPurple.opacity(0.15), lineWidth: 1)
                 }
         }
     }
@@ -174,7 +189,7 @@ struct GiftShareView: View {
 
     private func composeMessageIfNeeded() {
         guard shareMessage.isEmpty else { return }
-        shareMessage = "Hi \(recipientName), it's \(senderFirstName) — I made you something.\n\nHave a listen: \(linkString)"
+        shareMessage = "Hi \(recipientName), it's \(senderFirstName). I made you something — have a listen:\n\(linkString)"
     }
 }
 

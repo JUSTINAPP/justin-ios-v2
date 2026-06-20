@@ -13,17 +13,54 @@ final class GivingViewModel: ObservableObject {
         do {
             let rows: [GiftRow] = try await supabase
                 .from("gifts")
-                // people!recipient_id: many-to-one join using the recipient_id FK → returns single object
-                // messages(id): one-to-many join → returns array; count in Swift to avoid aggregate issues
                 .select("id, status, accepted, recipient_id, people!recipient_id(display_name), messages(id)")
                 .eq("author_id", value: authorId.uuidString)
                 .order("created_at", ascending: false)
                 .execute()
                 .value
-            gifts = rows
             print("[Giving] loaded \(rows.count) gifts")
+
+            // Fetch recipient avatar paths from person_overrides (same source as People page).
+            var pathByPersonId: [UUID: String] = [:]
+            let recipientIds = rows.map(\.recipientId)
+            if !recipientIds.isEmpty {
+                do {
+                    let overrides: [AvatarOverride] = try await supabase
+                        .from("person_overrides")
+                        .select("person_id, avatar_storage_path")
+                        .eq("owner_id", value: authorId.uuidString)
+                        .in("person_id", values: recipientIds.map(\.uuidString))
+                        .execute()
+                        .value
+                    pathByPersonId = Dictionary(
+                        overrides.compactMap { o -> (UUID, String)? in
+                            guard let path = o.avatarStoragePath else { return nil }
+                            return (o.personId, path)
+                        },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                    print("[Giving] avatar paths fetched for \(overrides.count) recipients")
+                } catch {
+                    print("[Giving] avatar paths fetch failed (non-fatal): \(error)")
+                }
+            }
+
+            gifts = rows.map { gift in
+                var g = gift
+                g.avatarStoragePath = pathByPersonId[gift.recipientId]
+                return g
+            }
         } catch {
             print("[Giving] fetch failed: \(error)")
+        }
+    }
+
+    private struct AvatarOverride: Decodable {
+        let personId: UUID
+        let avatarStoragePath: String?
+        enum CodingKeys: String, CodingKey {
+            case personId          = "person_id"
+            case avatarStoragePath = "avatar_storage_path"
         }
     }
 
@@ -34,6 +71,9 @@ final class GivingViewModel: ObservableObject {
         let recipientId: UUID
         let people: RecipientSummary?
         let messages: [MessageStub]
+        // Populated after the primary fetch via a separate person_overrides query.
+        // Not in CodingKeys — defaults to nil when decoded from Supabase.
+        var avatarStoragePath: String? = nil
 
         var recipientName: String { people?.displayName ?? "Someone" }
         var messageCount: Int { messages.count }
