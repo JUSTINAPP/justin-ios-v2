@@ -34,9 +34,18 @@ final class GiftSaveService {
         }
 
         // Upload photos — optional; continue on individual failures.
+        // Resize to 1400px long-edge + JPEG 0.75 before upload.
+        // Encoding the smaller image is faster than encoding full-res (no background
+        // thread needed — total for 10 photos is ~200ms vs ~1.5s for full-res).
         var photoPaths: [String] = []
         for (i, image) in model.selectedImages.enumerated() {
-            guard let jpegData = image.jpegData(compressionQuality: 0.85) else { continue }
+            guard let jpegData = compressedAvatarData(from: image, maxDimension: 1400, quality: 0.75) else {
+                print("[GiftPhoto] \(i): compression failed, skipping")
+                continue
+            }
+            let pixelW = Int(image.size.width * image.scale)
+            let pixelH = Int(image.size.height * image.scale)
+            print("[GiftPhoto] \(i): \(pixelW)×\(pixelH)px → \(jpegData.count / 1024) KB")
             let path = "\(uploadId)_\(i).jpg"
             do {
                 try await supabase.storage

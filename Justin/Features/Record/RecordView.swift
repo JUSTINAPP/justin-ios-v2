@@ -478,7 +478,7 @@ struct RecordStep3PhotosView: View {
 
                     PhotosPicker(
                         selection: $pickerItems,
-                        maxSelectionCount: 5,
+                        maxSelectionCount: 10,
                         matching: .images
                     ) {
                         Label(
