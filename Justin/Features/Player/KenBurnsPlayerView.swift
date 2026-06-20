@@ -180,7 +180,10 @@ struct KenBurnsPlayerView: View {
                         .foregroundStyle(.white.opacity(0.60))
                 }
             }
-            .padding(.top, 104) // clear status bar + close button
+            // showControls true  → full player; close button sits at ~88 pt, 104 clears it.
+            // showControls false → preview mode; the caller overlays a title block that
+            //   ends at ~143 pt, so push the avatar below it with extra room.
+            .padding(.top, showControls ? 104 : 168)
 
             Spacer()
 

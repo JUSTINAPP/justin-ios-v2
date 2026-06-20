@@ -29,7 +29,7 @@ struct GiftShareView: View {
 
                     heading
 
-                    linkBox
+                    copyLinkButton
 
                     messageEditor
 
@@ -93,50 +93,28 @@ struct GiftShareView: View {
         }
     }
 
-    private var linkBox: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Gift link")
-                .font(.system(.caption, weight: .semibold))
-                .foregroundStyle(Color.ink.opacity(0.4))
-                .textCase(.uppercase)
-                .kerning(0.5)
-
-            HStack(spacing: 10) {
-                Text(linkString)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .foregroundStyle(Color.brandPurple)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button {
-                    UIPasteboard.general.string = linkString
-                    withAnimation(.easeInOut(duration: 0.15)) { didCopy = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation(.easeInOut(duration: 0.15)) { didCopy = false }
-                    }
-                } label: {
-                    Text(didCopy ? "Copied" : "Copy")
-                        .font(.system(.caption, weight: .semibold))
-                        .foregroundStyle(didCopy ? Color.brandPurple : Color.ink.opacity(0.55))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            didCopy
-                                ? Color.brandPurple.opacity(0.12)
-                                : Color.ink.opacity(0.07)
-                        )
-                        .clipShape(Capsule())
-                        .animation(.easeInOut(duration: 0.15), value: didCopy)
-                }
+    // Compact copy-link affordance — replaces the full URL box.
+    // The link is already visible inside the editable message; showing the raw URL
+    // a second time is redundant. This gives a quick "just the link" copy action.
+    private var copyLinkButton: some View {
+        Button {
+            UIPasteboard.general.string = linkString
+            withAnimation(.easeInOut(duration: 0.15)) { didCopy = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation(.easeInOut(duration: 0.15)) { didCopy = false }
             }
-            .padding(14)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.brandPurple.opacity(0.18), lineWidth: 1)
-            }
+        } label: {
+            Label(
+                didCopy ? "Link copied" : "Copy link",
+                systemImage: didCopy ? "checkmark.circle.fill" : "link"
+            )
+            .font(.system(.subheadline, weight: .medium))
+            .foregroundStyle(didCopy ? Color.brandPurple : Color.ink.opacity(0.6))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(didCopy ? Color.brandPurple.opacity(0.10) : Color.ink.opacity(0.06))
+            .clipShape(Capsule())
+            .animation(.easeInOut(duration: 0.15), value: didCopy)
         }
     }
 
@@ -189,7 +167,7 @@ struct GiftShareView: View {
 
     private func composeMessageIfNeeded() {
         guard shareMessage.isEmpty else { return }
-        shareMessage = "Hi \(recipientName), it's \(senderFirstName). I made you something — have a listen:\n\(linkString)"
+        shareMessage = "Hi \(recipientName), it's \(senderFirstName) — I left you a little something. Have a listen 💛\n\(linkString)"
     }
 }
 

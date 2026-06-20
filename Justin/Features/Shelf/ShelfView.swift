@@ -35,6 +35,7 @@ struct ShelfView: View {
     @State private var singleFeelingMessage: ShelfMessage?
     @State private var showGiftsNotice = false
     @State private var giftsNoticeCount = 0
+    @State private var openNotifications: [GiftOpenNotification] = []
 
     var body: some View {
         Group {
@@ -88,6 +89,15 @@ struct ShelfView: View {
             }
         }
         .animation(.spring(duration: 0.45), value: showGiftsNotice)
+        .safeAreaInset(edge: .top) {
+            if let notif = openNotifications.first {
+                openNotificationBanner(notif)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.45), value: openNotifications.first?.id)
         .onAppear {
             guard let id = auth.currentPerson?.id else { return }
             Task { await viewModel.fetch(recipientId: id) }
@@ -101,6 +111,11 @@ struct ShelfView: View {
                     try? await Task.sleep(for: .seconds(5))
                     withAnimation(.easeOut(duration: 0.4)) { showGiftsNotice = false }
                 }
+            }
+
+            // Load "your gift was heard" notifications for sent gifts.
+            Task {
+                openNotifications = await fetchGiftOpenNotifications(forAuthorId: id)
             }
         }
     }
@@ -389,6 +404,58 @@ struct ShelfView: View {
             .shadow(color: Color.brandPurple.opacity(0.22), radius: 8, x: 0, y: 3)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - "Your gift was heard" notification banner
+
+    private func openNotificationBanner(_ notif: GiftOpenNotification) -> some View {
+        Button {
+            dismissOpenNotification(notif)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: notif.iconName)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.brandRose)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(notif.headline)
+                        .font(.system(.subheadline).weight(.semibold))
+                        .foregroundStyle(Color.ink)
+                        .multilineTextAlignment(.leading)
+                    if let sub = notif.subtext {
+                        Text(sub)
+                            .font(.system(.caption))
+                            .foregroundStyle(Color.ink.opacity(0.55))
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.ink.opacity(0.35))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.lilacBg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(Color.brandRose.opacity(0.22), lineWidth: 1)
+                    )
+            )
+            .shadow(color: Color.brandPurple.opacity(0.09), radius: 6, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func dismissOpenNotification(_ notif: GiftOpenNotification) {
+        withAnimation(.easeOut(duration: 0.35)) {
+            openNotifications.removeAll { $0.id == notif.id }
+        }
+        // Fire-and-forget: mark in DB so it doesn't reappear; non-fatal on failure.
+        Task { await markGiftOpenNotified(messageId: notif.id) }
     }
 
     // MARK: - Section header
