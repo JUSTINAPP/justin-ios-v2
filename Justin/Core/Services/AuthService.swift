@@ -19,6 +19,10 @@ final class AuthService: ObservableObject {
     /// Count of gifts that were re-pointed to this user during convergence.
     /// ShelfView reads this once on appear and resets it to 0 after showing the notice.
     @Published var pendingGiftsCount: Int = 0
+    /// Triggers the "have a gift code?" sheet — set true after a new account is created.
+    @Published var showClaimCodePrompt: Bool = false
+    /// Set true after a successful gift claim so ShelfView knows to re-fetch.
+    @Published var needsShelfRefresh: Bool = false
 
     private var pendingUserId: UUID?
     private var pendingPhone: String?
@@ -93,6 +97,8 @@ final class AuthService: ObservableObject {
             pendingUserId = nil
             pendingPhone = nil
             state = .signedIn
+            // Prompt new users to claim a gift by code — they may have one from the web.
+            showClaimCodePrompt = true
         } catch {
             print("[Name] save failed: \(error)")
             print("[Name] localizedDescription: \(error.localizedDescription)")

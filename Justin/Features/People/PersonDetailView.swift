@@ -27,6 +27,11 @@ struct PersonDetailView: View {
     @State private var showRecord = false
     @State private var avatarPickerItem: PhotosPickerItem?
     @State private var isUploadingAvatar = false
+    @State private var isBlocked = false
+    @State private var showBlockConfirm = false
+    /// True when this person has a real Justin account (auth_id is non-null).
+    /// Block is only meaningful for real users who can send messages.
+    @State private var personHasAccount = false
 
     private static let dayMonthFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "d MMM"; return f
@@ -48,6 +53,7 @@ struct PersonDetailView: View {
                 List {
                     headerSection
                     sendMessageSection
+                    if isBlocked { blockedSection }
                     if !phone.isEmpty { contactSection }
                     if !occasions.isEmpty { datesSection }
                     if !notes.isEmpty { notesSection }
@@ -64,6 +70,25 @@ struct PersonDetailView: View {
                     Button { showEditPerson = true } label: {
                         Label("Edit", systemImage: "pencil")
                     }
+                    // Block/Unblock only shown for real app users (auth_id present).
+                    // Placeholder recipients can't send messages so blocking is N/A.
+                    if personHasAccount {
+                        Divider()
+                        if isBlocked {
+                            Button {
+                                Task { await unblockPerson() }
+                            } label: {
+                                Label("Unblock \(name)", systemImage: "person.badge.plus")
+                            }
+                        } else {
+                            Button(role: .destructive) {
+                                showBlockConfirm = true
+                            } label: {
+                                Label("Block \(name)", systemImage: "hand.raised")
+                            }
+                        }
+                    }
+                    Divider()
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
                     } label: {
@@ -86,6 +111,12 @@ struct PersonDetailView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This removes them and their saved dates.")
+        }
+        .alert("Block \(name)?", isPresented: $showBlockConfirm) {
+            Button("Block", role: .destructive) { Task { await blockPerson() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("They won't be able to send you anything on Justin, and they won't be told.")
         }
         .task { await loadPerson() }
         .onChange(of: avatarPickerItem) { _, item in
@@ -118,6 +149,39 @@ struct PersonDetailView: View {
             .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
         }
+        .listSectionSeparator(.hidden)
+    }
+
+    // MARK: - Blocked section (UI 3 + 4)
+
+    private var blockedSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.ink.opacity(0.55))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("You've blocked \(name)")
+                        .font(.system(.subheadline, weight: .medium))
+                        .foregroundStyle(Color.ink)
+                    Text("They can't send you anything new.")
+                        .font(.system(.caption))
+                        .foregroundStyle(Color.secondary)
+                }
+                Spacer()
+                Button {
+                    Task { await unblockPerson() }
+                } label: {
+                    Text("Unblock")
+                        .font(.system(.subheadline, weight: .medium))
+                        .foregroundStyle(Color.brandPurple)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.vertical, 4)
+        }
+        .listRowBackground(Color.ink.opacity(0.04))
+        .listRowSeparator(.hidden)
         .listSectionSeparator(.hidden)
     }
 
@@ -156,6 +220,15 @@ struct PersonDetailView: View {
                         Text(relationship)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                    }
+                    if isBlocked {
+                        Label("Blocked", systemImage: "hand.raised.fill")
+                            .font(.system(.caption, weight: .semibold))
+                            .foregroundStyle(Color.ink.opacity(0.7))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(Color.ink.opacity(0.09))
+                            .clipShape(Capsule())
                     }
                 }
                 Spacer()
@@ -281,15 +354,25 @@ struct PersonDetailView: View {
         defer { isLoading = false }
 
         do {
-            struct PersonRow: Decodable { let phone: String? }
+            struct PersonRow: Decodable {
+                let phone: String?
+                let authId: UUID?
+                enum CodingKeys: String, CodingKey {
+                    case phone
+                    case authId = "auth_id"
+                }
+            }
             let rows: [PersonRow] = try await supabase
                 .from("people")
-                .select("phone")
+                .select("phone, auth_id")
                 .eq("id", value: person.id.uuidString)
                 .limit(1)
                 .execute()
                 .value
             phone = rows.first?.phone ?? ""
+            // Block is only meaningful for people with real accounts (auth_id present).
+            // Placeholder recipients (auth_id null) can't send messages, so blocking is irrelevant.
+            personHasAccount = rows.first?.authId != nil
         } catch {
             print("[PersonDetail] phone load skipped: \(error)")
         }
@@ -344,6 +427,57 @@ struct PersonDetailView: View {
         } catch {
             print("[PersonDetail] occasions load skipped: \(error)")
         }
+
+        // Check block status — RLS ensures we only see our own blocks
+        do {
+            struct BlockedRow: Decodable {
+                let blockedId: UUID
+                enum CodingKeys: String, CodingKey { case blockedId = "blocked_id" }
+            }
+            let rows: [BlockedRow] = try await supabase
+                .from("blocks")
+                .select("blocked_id")
+                .eq("blocked_id", value: person.id.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            isBlocked = !rows.isEmpty
+        } catch {
+            print("[Block] status check skipped: \(error)")
+        }
+    }
+
+    // MARK: - Block / Unblock
+
+    private struct BlockParams: Encodable {
+        let pBlockedId: UUID
+        enum CodingKeys: String, CodingKey { case pBlockedId = "p_blocked_id" }
+    }
+
+    private func blockPerson() async {
+        print("[Block] blocking: \(name) (\(person.id))")
+        do {
+            try await supabase
+                .rpc("block_person", params: BlockParams(pBlockedId: person.id))
+                .execute()
+            isBlocked = true
+            print("[Block] blocked: \(person.id)")
+        } catch {
+            print("[Block] block failed: \(error)")
+        }
+    }
+
+    private func unblockPerson() async {
+        print("[Block] unblocking: \(name) (\(person.id))")
+        do {
+            try await supabase
+                .rpc("unblock_person", params: BlockParams(pBlockedId: person.id))
+                .execute()
+            isBlocked = false
+            print("[Block] unblocked: \(person.id)")
+        } catch {
+            print("[Block] unblock failed: \(error)")
+        }
     }
 
     // MARK: - Delete
@@ -353,6 +487,13 @@ struct PersonDetailView: View {
         isDeleting = true
         // No defer reset — we pop immediately on success; reset only on failure.
 
+        // ── BUG 2 DIAGNOSIS ────────────────────────────────────────────────────
+        print("[Delete] TARGET: people.id=\(person.id) name='\(name)'")
+        print("[Delete] isGiving=\(person.isGiving) isReceiving=\(person.isReceiving)")
+        print("[Delete] NOTE: people row will \(person.isGiving || person.isReceiving ? "NOT be deleted (has gift FK references)" : "be deleted")")
+        print("[Delete] auth.uid=\(supabase.auth.currentUser?.id.uuidString ?? "NIL") session=\(supabase.auth.currentSession != nil ? "EXISTS" : "NIL")")
+        // ──────────────────────────────────────────────────────────────────────
+
         do {
             try await supabase
                 .from("occasions")
@@ -360,6 +501,7 @@ struct PersonDetailView: View {
                 .eq("owner_id", value: ownerId.uuidString)
                 .eq("person_id", value: person.id.uuidString)
                 .execute()
+            print("[Delete] occasions deleted OK")
 
             try await supabase
                 .from("person_overrides")
@@ -367,6 +509,7 @@ struct PersonDetailView: View {
                 .eq("owner_id", value: ownerId.uuidString)
                 .eq("person_id", value: person.id.uuidString)
                 .execute()
+            print("[Delete] person_overrides deleted OK")
 
             // Only delete the people row for standalone contacts (no gift relationships).
             // People tied to gifts are left in the people table; their override/occasions are removed above.
@@ -376,13 +519,24 @@ struct PersonDetailView: View {
                     .delete()
                     .eq("id", value: person.id.uuidString)
                     .execute()
+                print("[Delete] people row deleted OK")
+
+                // Verify the row is actually gone
+                struct IdRow: Decodable { let id: UUID }
+                let check: [IdRow] = (try? await supabase.from("people").select("id").eq("id", value: person.id.uuidString).limit(1).execute().value) ?? []
+                print("[Delete] DB verification: people row still exists=\(!check.isEmpty) ← should be false")
+            } else {
+                print("[Delete] people row SKIPPED (isGiving=\(person.isGiving) isReceiving=\(person.isReceiving)) — row kept for gift FK integrity")
             }
 
-            print("[Person] deleted \(name)")
+            print("[Delete] calling dismiss() — PeopleView list will NOT auto-refresh (needs onAppear to re-fire or explicit callback)")
             dismiss()
 
         } catch {
-            print("[PersonDetail] delete failed: \(error)")
+            print("[Delete] FAILED: \(error)")
+            if let pgErr = error as? PostgrestError {
+                print("[Delete] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message) detail=\(pgErr.detail ?? "nil") hint=\(pgErr.hint ?? "nil")")
+            }
             isDeleting = false
         }
     }

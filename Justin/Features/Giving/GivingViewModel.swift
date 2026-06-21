@@ -4,25 +4,59 @@ import Combine
 
 @MainActor
 final class GivingViewModel: ObservableObject {
-    @Published var gifts: [GiftRow] = []
+    @Published var recipients: [RecipientRow] = []
     @Published var isLoading = false
 
     func fetch(authorId: UUID) async {
         isLoading = true
         defer { isLoading = false }
         do {
-            let rows: [GiftRow] = try await supabase
+            // Query 1 — all gifts authored by this user (share_token + recipient name)
+            let giftRows: [RawGiftRow] = try await supabase
                 .from("gifts")
-                .select("id, status, accepted, recipient_id, people!recipient_id(display_name), messages(id)")
+                .select("id, recipient_id, share_token, people!recipient_id(display_name)")
                 .eq("author_id", value: authorId.uuidString)
                 .order("created_at", ascending: false)
                 .execute()
                 .value
-            print("[Giving] loaded \(rows.count) gifts")
+            print("[Giving] loaded \(giftRows.count) gifts")
 
-            // Fetch recipient avatar paths from person_overrides (same source as People page).
-            var pathByPersonId: [UUID: String] = [:]
-            let recipientIds = rows.map(\.recipientId)
+            if giftRows.isEmpty { recipients = []; return }
+
+            // Query 2 — all messages for those gifts, newest first (reuses Message's date parsing)
+            let messages: [Message] = try await supabase
+                .from("messages")
+                .select()
+                .in("gift_id", values: giftRows.map(\.id.uuidString))
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+
+            // Lookups built from the gift rows
+            let shareTokenByGiftId: [UUID: String?] = Dictionary(
+                giftRows.map { ($0.id, $0.shareToken) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let giftToRecipient: [UUID: (id: UUID, name: String)] = Dictionary(
+                giftRows.map { ($0.id, (id: $0.recipientId, name: $0.people?.displayName ?? "Someone")) },
+                uniquingKeysWith: { first, _ in first }
+            )
+
+            // Group messages by recipient
+            var byRecipient: [UUID: (name: String, items: [RecipientRow.MessageItem])] = [:]
+            for message in messages {
+                guard let info = giftToRecipient[message.giftId] else { continue }
+                let item = RecipientRow.MessageItem(
+                    id: message.id,
+                    message: message,
+                    shareToken: shareTokenByGiftId[message.giftId] ?? nil
+                )
+                byRecipient[info.id, default: (info.name, [])].items.append(item)
+            }
+
+            // Query 3 — avatar paths (non-fatal)
+            let recipientIds = Array(byRecipient.keys)
+            var avatarPaths: [UUID: String] = [:]
             if !recipientIds.isEmpty {
                 do {
                     let overrides: [AvatarOverride] = try await supabase
@@ -32,26 +66,69 @@ final class GivingViewModel: ObservableObject {
                         .in("person_id", values: recipientIds.map(\.uuidString))
                         .execute()
                         .value
-                    pathByPersonId = Dictionary(
-                        overrides.compactMap { o -> (UUID, String)? in
-                            guard let path = o.avatarStoragePath else { return nil }
-                            return (o.personId, path)
-                        },
-                        uniquingKeysWith: { first, _ in first }
-                    )
-                    print("[Giving] avatar paths fetched for \(overrides.count) recipients")
+                    for o in overrides {
+                        if let path = o.avatarStoragePath { avatarPaths[o.personId] = path }
+                    }
                 } catch {
-                    print("[Giving] avatar paths fetch failed (non-fatal): \(error)")
+                    print("[Giving] avatar paths failed (non-fatal): \(error)")
                 }
             }
 
-            gifts = rows.map { gift in
-                var g = gift
-                g.avatarStoragePath = pathByPersonId[gift.recipientId]
-                return g
+            // Build recipient rows sorted by most recent message
+            recipients = byRecipient.map { (recipientId, pair) in
+                RecipientRow(
+                    id: recipientId,
+                    recipientName: pair.name,
+                    avatarStoragePath: avatarPaths[recipientId],
+                    items: pair.items  // already newest-first from DB order
+                )
+            }.sorted {
+                ($0.items.first?.message.createdAt ?? .distantPast) >
+                ($1.items.first?.message.createdAt ?? .distantPast)
             }
+
+            print("[Giving] \(recipients.count) recipient(s), \(messages.count) total message(s)")
+
         } catch {
             print("[Giving] fetch failed: \(error)")
+        }
+    }
+
+    // MARK: - Public models
+
+    struct RecipientRow: Identifiable {
+        let id: UUID               // recipientId
+        let recipientName: String
+        var avatarStoragePath: String?
+        var items: [MessageItem]   // all messages to this recipient, newest first
+
+        var messageCount: Int { items.count }
+
+        struct MessageItem: Identifiable {
+            let id: UUID           // message.id
+            let message: Message
+            let shareToken: String?
+        }
+    }
+
+    // MARK: - Private Decodable shapes
+
+    private struct RawGiftRow: Decodable {
+        let id: UUID
+        let recipientId: UUID
+        let shareToken: String?
+        let people: RecipientSummary?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case recipientId = "recipient_id"
+            case shareToken  = "share_token"
+            case people
+        }
+
+        struct RecipientSummary: Decodable {
+            let displayName: String?
+            enum CodingKeys: String, CodingKey { case displayName = "display_name" }
         }
     }
 
@@ -61,36 +138,6 @@ final class GivingViewModel: ObservableObject {
         enum CodingKeys: String, CodingKey {
             case personId          = "person_id"
             case avatarStoragePath = "avatar_storage_path"
-        }
-    }
-
-    struct GiftRow: Codable, Identifiable {
-        let id: UUID
-        let status: String
-        let accepted: Bool
-        let recipientId: UUID
-        let people: RecipientSummary?
-        let messages: [MessageStub]
-        // Populated after the primary fetch via a separate person_overrides query.
-        // Not in CodingKeys — defaults to nil when decoded from Supabase.
-        var avatarStoragePath: String? = nil
-
-        var recipientName: String { people?.displayName ?? "Someone" }
-        var messageCount: Int { messages.count }
-
-        enum CodingKeys: String, CodingKey {
-            case id, status, accepted
-            case recipientId = "recipient_id"
-            case people, messages
-        }
-
-        struct RecipientSummary: Codable {
-            let displayName: String?
-            enum CodingKeys: String, CodingKey { case displayName = "display_name" }
-        }
-
-        struct MessageStub: Codable {
-            let id: UUID
         }
     }
 }

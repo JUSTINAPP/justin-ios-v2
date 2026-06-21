@@ -21,6 +21,11 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.4), value: auth.state)
+        // Post-signup: prompt new users to claim a gift by code.
+        // Presented on top of whatever screen is active (MainTabView or IntroView).
+        .sheet(isPresented: $auth.showClaimCodePrompt) {
+            GiftClaimView(onClaimed: { auth.needsShelfRefresh = true })
+        }
     }
 }
 

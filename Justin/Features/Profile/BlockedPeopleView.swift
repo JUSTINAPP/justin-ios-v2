@@ -1,138 +1,129 @@
 import SwiftUI
+import Supabase
 
 struct BlockedPeopleView: View {
-    @Binding var blockedPeople: [String]
 
-    @State private var showBlockNumberField = false
-    @State private var numberToBlock = ""
-    @State private var showBlockNumberConfirm = false
-    @State private var personToUnblock: String?
+    @State private var blocked: [BlockedEntry] = []
+    @State private var isLoading = false
+    @State private var toUnblock: BlockedEntry?
     @State private var showUnblockConfirm = false
-    @FocusState private var numberFieldFocused: Bool
+
+    // MARK: - Body
 
     var body: some View {
         List {
-            // Explanation — clarify the two entry points
-            Section {
-                Text("These people can't reach you. To block someone already in your circle, go to Manage your circle.")
-                    .font(.system(.subheadline))
-                    .foregroundColor(.secondary)
-            }
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-
-            // Block an unknown number
-            Section {
-                if showBlockNumberField {
-                    HStack(spacing: 12) {
-                        TextField("+1 555 000 0000", text: $numberToBlock)
-                            .keyboardType(.phonePad)
-                            .focused($numberFieldFocused)
-                        Button("Block") {
-                            showBlockNumberConfirm = true
-                        }
-                        .foregroundColor(.red)
-                        .disabled(numberToBlock.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    Button("Cancel") {
-                        showBlockNumberField = false
-                        numberToBlock = ""
-                    }
-                    .font(.system(.subheadline))
-                    .foregroundColor(.secondary)
-                } else {
-                    Button {
-                        showBlockNumberField = true
-                        numberFieldFocused = true
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Label("Block a number", systemImage: "plus.circle.fill")
-                                .font(.system(.body))
-                                .foregroundColor(.brandPurple)
-                            Text("Block someone who isn't in your circle yet.")
-                                .font(.system(.caption))
-                                .foregroundColor(.secondary)
-                                .padding(.leading, 28)
-                        }
-                    }
-                    .buttonStyle(.plain)
+            if isLoading {
+                Section {
+                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 24)
                 }
-            }
-
-            // Blocked people list (or empty state)
-            if !blockedPeople.isEmpty {
-                Section("Blocked") {
-                    ForEach(blockedPeople, id: \.self) { person in
-                        HStack(spacing: 14) {
-                            InitialsAvatar(name: person, size: 40)
-                            Text(person)
-                                .font(.system(.body).weight(.medium))
-                            Spacer()
-                            Menu {
-                                Button {
-                                    personToUnblock = person
-                                    showUnblockConfirm = true
-                                } label: {
-                                    Label("Unblock", systemImage: "person.badge.plus")
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 6)
-                    }
-                }
-            } else {
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else if blocked.isEmpty {
                 Section {
                     Text("You haven't blocked anyone.")
                         .font(.system(.body))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(Color.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 24)
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
+            } else {
+                Section("Blocked") {
+                    ForEach(blocked) { entry in
+                        HStack(spacing: 14) {
+                            CachedAvatarView(storagePath: nil, name: entry.displayName, size: 40)
+                            Text(entry.displayName)
+                                .font(.system(.body).weight(.medium))
+                            Spacer()
+                            Button {
+                                toUnblock = entry
+                                showUnblockConfirm = true
+                            } label: {
+                                Text("Unblock")
+                                    .font(.system(.subheadline, weight: .medium))
+                                    .foregroundStyle(Color.brandPurple)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
             }
         }
         .navigationTitle("Blocked people")
         .navigationBarTitleDisplayMode(.inline)
         .scrollClearance()
-        .alert("Block this number?", isPresented: $showBlockNumberConfirm) {
-            Button("Block", role: .destructive) {
-                let trimmed = numberToBlock.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty && !blockedPeople.contains(trimmed) {
-                    blockedPeople.append(trimmed)
-                }
-                numberToBlock = ""
-                showBlockNumberField = false
-            }
+        .task { await load() }
+        .alert(
+            "Unblock \(toUnblock?.displayName ?? "")?",
+            isPresented: $showUnblockConfirm,
+            presenting: toUnblock
+        ) { entry in
+            Button("Unblock") { Task { await unblock(entry) } }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("They won't be able to reach you on Justin.")
+        } message: { entry in
+            Text("\(entry.displayName) will be able to send to you again.")
         }
-        .alert("Unblock \(personToUnblock ?? "")?",
-               isPresented: $showUnblockConfirm,
-               presenting: personToUnblock) { person in
-            Button("Unblock") {
-                blockedPeople.removeAll { $0 == person }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { person in
-            Text("\(person) will be able to send to you again.")
+    }
+
+    // MARK: - Data
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let rows: [BlockedEntry] = try await supabase
+                .from("blocks")
+                .select("blocked_id, people!blocked_id(display_name)")
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+            blocked = rows
+            print("[Blocked] loaded \(rows.count) blocked people")
+        } catch {
+            print("[Blocked] load failed: \(error)")
         }
+    }
+
+    private func unblock(_ entry: BlockedEntry) async {
+        print("[Block] unblocking: \(entry.displayName) (\(entry.id))")
+        do {
+            try await supabase
+                .rpc("unblock_person", params: BlockParams(pBlockedId: entry.id))
+                .execute()
+            blocked.removeAll { $0.id == entry.id }
+            print("[Block] unblocked: \(entry.id)")
+        } catch {
+            print("[Block] unblock failed: \(error)")
+        }
+    }
+
+    // MARK: - Types
+
+    struct BlockedEntry: Identifiable, Decodable {
+        let id: UUID           // blocked_id
+        let people: PersonInfo?
+
+        var displayName: String { people?.displayName ?? "Unknown" }
+
+        struct PersonInfo: Decodable {
+            let displayName: String?
+            enum CodingKeys: String, CodingKey { case displayName = "display_name" }
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id     = "blocked_id"
+            case people
+        }
+    }
+
+    private struct BlockParams: Encodable {
+        let pBlockedId: UUID
+        enum CodingKeys: String, CodingKey { case pBlockedId = "p_blocked_id" }
     }
 }
 
-#Preview("With blocked person") {
-    NavigationStack {
-        BlockedPeopleView(blockedPeople: .constant(["Alex"]))
-    }
-}
-
-#Preview("Empty") {
-    NavigationStack {
-        BlockedPeopleView(blockedPeople: .constant([]))
-    }
+#Preview {
+    NavigationStack { BlockedPeopleView() }
 }

@@ -29,22 +29,86 @@ final class ShelfViewModel: ObservableObject {
     @Published var sections  = ShelfSections()
     @Published var isLoading = false
 
+    // ISO8601 parsers shared by the nested Decodable types (Supabase returns
+    // timestamptz as strings; try fractional-seconds first, then plain).
+    fileprivate static let isoFull: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    fileprivate static let isoPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     func fetch(recipientId: UUID) async {
         isLoading = true
         defer { isLoading = false }
+
+        // Fetch block list with timestamps — non-fatal; empty map = no filtering.
+        // Maps blocked_author_id → when_the_block_was_created.
+        // Future-only rule: a gift is hidden only if it arrived AFTER the block.
+        // Gifts already on the shelf before blocking are never hidden retroactively.
+        var blocksByAuthor: [UUID: Date] = [:]
         do {
-            // Step 1 — gifts received by this user, with the sender's name embedded
-            // people!author_id: many-to-one join (gift.author_id → people.id)
+            struct BlockRow: Decodable {
+                let blockedId: UUID
+                let createdAtStr: String?
+                enum CodingKeys: String, CodingKey {
+                    case blockedId    = "blocked_id"
+                    case createdAtStr = "created_at"
+                }
+            }
+            let blocks: [BlockRow] = try await supabase
+                .from("blocks")
+                .select("blocked_id, created_at")
+                .execute()
+                .value
+            for b in blocks {
+                let blockedAt = b.createdAtStr.flatMap {
+                    ShelfViewModel.isoFull.date(from: $0) ?? ShelfViewModel.isoPlain.date(from: $0)
+                } ?? Date.distantPast
+                blocksByAuthor[b.blockedId] = blockedAt
+            }
+            if !blocksByAuthor.isEmpty {
+                print("[Shelf] \(blocksByAuthor.count) blocked author(s) — future-only filter active")
+            }
+        } catch {
+            print("[Shelf] blocks fetch skipped (non-fatal): \(error)")
+        }
+
+        do {
+            // Step 1 — gifts received by this user (includes created_at for block-filter comparison)
             let gifts: [ReceivedGiftRow] = try await supabase
                 .from("gifts")
-                .select("id, author_id, people!author_id(display_name)")
+                .select("id, author_id, created_at, people!author_id(display_name)")
                 .eq("recipient_id", value: recipientId.uuidString)
                 .execute()
                 .value
 
-            guard !gifts.isEmpty else {
+            // Future-only block filter:
+            //   • author not blocked                    → always show
+            //   • author blocked, gift pre-dates block  → keep (gift was there before block)
+            //   • author blocked, gift post-dates block → hide (arrived after block)
+            let visibleGifts: [ReceivedGiftRow]
+            if blocksByAuthor.isEmpty {
+                visibleGifts = gifts
+            } else {
+                visibleGifts = gifts.filter { gift in
+                    guard let blockedAt = blocksByAuthor[gift.authorId] else {
+                        return true // not blocked
+                    }
+                    let giftDate = gift.createdAt ?? Date.distantPast
+                    let keep     = giftDate <= blockedAt
+                    print("[Shelf] gift \(gift.id) | author blocked @ \(blockedAt) | gift created @ \(giftDate) → \(keep ? "KEEP" : "HIDE")")
+                    return keep
+                }
+            }
+
+            guard !visibleGifts.isEmpty else {
                 sections = ShelfSections()
-                print("[Shelf] loaded 0 received messages")
+                print("[Shelf] loaded 0 visible received messages")
                 return
             }
 
@@ -52,12 +116,12 @@ final class ShelfViewModel: ObservableObject {
             let messages: [Message] = try await supabase
                 .from("messages")
                 .select()
-                .in("gift_id", values: gifts.map(\.id.uuidString))
+                .in("gift_id", values: visibleGifts.map(\.id.uuidString))
                 .execute()
                 .value
 
             print("[Shelf] loaded \(messages.count) received messages")
-            sections = organize(messages: messages, gifts: gifts)
+            sections = organize(messages: messages, gifts: visibleGifts)
 
         } catch {
             print("[Shelf] fetch failed: \(error)")
@@ -142,14 +206,31 @@ final class ShelfViewModel: ObservableObject {
     struct ReceivedGiftRow: Decodable {
         let id: UUID
         let authorId: UUID
+        let createdAt: Date?      // used for future-only block filter
         let people: AuthorSummary?
 
         var fromName: String { people?.displayName ?? "Someone" }
 
         enum CodingKeys: String, CodingKey {
             case id
-            case authorId = "author_id"
+            case authorId  = "author_id"
+            case createdAt = "created_at"
             case people
+        }
+
+        // Custom init: Supabase returns timestamptz as an ISO8601 string, not a
+        // number, so the default Date decoding would fail. Parse it explicitly.
+        init(from decoder: Decoder) throws {
+            let c      = try decoder.container(keyedBy: CodingKeys.self)
+            id         = try c.decode(UUID.self, forKey: .id)
+            authorId   = try c.decode(UUID.self, forKey: .authorId)
+            people     = try? c.decodeIfPresent(AuthorSummary.self, forKey: .people)
+            if let s   = try? c.decodeIfPresent(String.self, forKey: .createdAt) {
+                createdAt = ShelfViewModel.isoFull.date(from: s)
+                         ?? ShelfViewModel.isoPlain.date(from: s)
+            } else {
+                createdAt = nil
+            }
         }
 
         struct AuthorSummary: Decodable {

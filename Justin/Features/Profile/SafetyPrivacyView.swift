@@ -26,7 +26,7 @@ struct SafetyPrivacyView: View {
                         .font(.system(.body))
                     VStack(spacing: 8) {
                         navActionRow("Manage your circle", destination: ManageCircleView(people: $circleMembers, blockedPeople: $blockedPeople))
-                        navActionRow("Blocked people", destination: BlockedPeopleView(blockedPeople: $blockedPeople))
+                        navActionRow("Blocked people", destination: BlockedPeopleView())
                     }
                 }
 

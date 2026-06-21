@@ -36,6 +36,7 @@ struct ShelfView: View {
     @State private var showGiftsNotice = false
     @State private var giftsNoticeCount = 0
     @State private var openNotifications: [GiftOpenNotification] = []
+    @State private var showClaimSheet = false
 
     var body: some View {
         Group {
@@ -62,6 +63,20 @@ struct ShelfView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { Wordmark() }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showClaimSheet = true } label: {
+                    Image(systemName: "ticket")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color.ink)
+                }
+                .accessibilityLabel("Enter gift code")
+            }
+        }
+        .sheet(isPresented: $showClaimSheet) {
+            GiftClaimView(onClaimed: {
+                guard let id = auth.currentPerson?.id else { return }
+                Task { await viewModel.fetch(recipientId: id) }
+            })
         }
         .navigationDestination(for: ShelfFeeling.self) { feeling in
             FeelingCollectionView(feeling: feeling)
@@ -117,6 +132,11 @@ struct ShelfView: View {
             Task {
                 openNotifications = await fetchGiftOpenNotifications(forAuthorId: id)
             }
+        }
+        .onChange(of: auth.needsShelfRefresh) { _, needsRefresh in
+            guard needsRefresh, let id = auth.currentPerson?.id else { return }
+            auth.needsShelfRefresh = false
+            Task { await viewModel.fetch(recipientId: id) }
         }
     }
 

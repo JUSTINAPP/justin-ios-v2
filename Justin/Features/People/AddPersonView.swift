@@ -569,6 +569,11 @@ struct AddPersonView: View {
         defer { isSaving = false }
 
         do {
+            // ── BUG 1 DIAGNOSIS — name edit ──────────────────────────────────
+            print("[NameEdit] WRITE target: people.id=\(pid) display_name='\(trimmedName)'")
+            print("[NameEdit] auth.uid=\(supabase.auth.currentUser?.id.uuidString ?? "NIL") session=\(supabase.auth.currentSession != nil ? "EXISTS" : "NIL")")
+            // ────────────────────────────────────────────────────────────────────
+
             struct PersonUpdate: Encodable {
                 let displayName: String
                 let phone: String?
@@ -582,6 +587,13 @@ struct AddPersonView: View {
                 .update(PersonUpdate(displayName: trimmedName, phone: phone.isEmpty ? nil : phone))
                 .eq("id", value: pid.uuidString)
                 .execute()
+
+            print("[NameEdit] people.update() returned without throw")
+
+            // Read-back: confirm what the DB actually has after the write
+            struct VerifyRow: Decodable { let displayName: String?; enum CodingKeys: String, CodingKey { case displayName = "display_name" } }
+            let verify: [VerifyRow] = (try? await supabase.from("people").select("display_name").eq("id", value: pid.uuidString).limit(1).execute().value) ?? []
+            print("[NameEdit] DB read-back display_name='\(verify.first?.displayName ?? "nil")' — expected='\(trimmedName)' match=\(verify.first?.displayName == trimmedName)")
 
             // ── Auth state at write time ─────────────────────────────────────
             let _authSessionU = supabase.auth.currentSession
@@ -647,7 +659,10 @@ struct AddPersonView: View {
 
         } catch {
             let msg = fmtError(error)
-            print("[AddPerson] update failed: \(msg)")
+            print("[NameEdit] UPDATE FAILED: \(msg)")
+            if let pgErr = error as? PostgrestError {
+                print("[NameEdit] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message) detail=\(pgErr.detail ?? "nil") hint=\(pgErr.hint ?? "nil")")
+            }
             saveError = msg
             showSaveError = true
         }

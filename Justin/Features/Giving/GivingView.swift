@@ -50,11 +50,11 @@ struct GivingView: View {
 
     @ViewBuilder
     private var contentArea: some View {
-        if viewModel.isLoading && viewModel.gifts.isEmpty {
+        if viewModel.isLoading && viewModel.recipients.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.bottom, 80)
-        } else if viewModel.gifts.isEmpty {
+        } else if viewModel.recipients.isEmpty {
             ZStack {
                 givingGhost
                 EmptyState(
@@ -74,9 +74,15 @@ struct GivingView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 4)
 
-                    ForEach(viewModel.gifts) { gift in
-                        NavigationLink(destination: GiftDetailView(giftId: gift.id, recipientName: gift.recipientName, recipientPersonId: gift.recipientId)) {
-                            giftCard(gift)
+                    ForEach(viewModel.recipients) { recipient in
+                        NavigationLink(destination: RecipientGivingDetailView(
+                            recipient: recipient,
+                            onRefresh: {
+                                guard let id = auth.currentPerson?.id else { return }
+                                Task { await viewModel.fetch(authorId: id) }
+                            }
+                        )) {
+                            recipientCard(recipient)
                         }
                         .buttonStyle(.plain)
                     }
@@ -130,22 +136,23 @@ struct GivingView: View {
         .accessibilityHidden(true)
     }
 
-    // MARK: - Gift card
+    // MARK: - Recipient card (one per person, all their messages aggregated)
 
-    private func giftCard(_ gift: GivingViewModel.GiftRow) -> some View {
+    private func recipientCard(_ row: GivingViewModel.RecipientRow) -> some View {
         HStack(spacing: 14) {
-            CachedAvatarView(storagePath: gift.avatarStoragePath, name: gift.recipientName, size: 44)
+            CachedAvatarView(storagePath: row.avatarStoragePath, name: row.recipientName, size: 44)
             VStack(alignment: .leading, spacing: 3) {
-                Text("For \(gift.recipientName)")
+                Text("For \(row.recipientName)")
                     .font(.system(.body).weight(.medium))
                     .foregroundColor(.ink)
-                Text("\(gift.messageCount) message\(gift.messageCount == 1 ? "" : "s")")
+                Text("\(row.messageCount) message\(row.messageCount == 1 ? "" : "s")")
                     .font(.system(.subheadline))
                     .foregroundColor(Color.ink.opacity(0.5))
             }
             Spacer()
-            Image(systemName: "heart")
-                .foregroundColor(.brandPurple)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color.secondary)
         }
         .padding(16)
         .background(Color.white)
