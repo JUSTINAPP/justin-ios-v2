@@ -1,28 +1,32 @@
 import SwiftUI
+import Supabase
 
 struct AccountView: View {
     @EnvironmentObject var auth: AuthService
     @State private var displayName = ""
+    @State private var savedName   = ""   // last-persisted value; used for dirty detection
+    @State private var isSaving    = false
+
+    // MARK: - Derived state
+
+    private var canSave: Bool {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && !isSaving && trimmed != savedName
+    }
 
     // MARK: - Phone formatting
 
-    /// Formats the raw E.164-ish phone string stored in people.phone to a human-readable form.
-    /// Handles the common Supabase-stored formats: "61409774429", "+61409774429", "0409774429".
     private var formattedPhone: String {
         guard let raw = auth.currentPerson?.phone, !raw.isEmpty else { return "" }
         let digits = raw.filter(\.isNumber)
-
-        // 11-digit international without + : 61XXXXXXXXX → +61 XXX XXX XXX
         if digits.count == 11, digits.hasPrefix("61") {
             let sub = digits.dropFirst(2)
             return "+61 \(sub.prefix(3)) \(sub.dropFirst(3).prefix(3)) \(sub.dropFirst(6))"
         }
-        // 10-digit local starting with 0 : 0XXXXXXXXX → +61 XXX XXX XXX (AU assumption)
         if digits.count == 10, digits.hasPrefix("0") {
             let sub = digits.dropFirst(1)
             return "+61 \(sub.prefix(3)) \(sub.dropFirst(3).prefix(3)) \(sub.dropFirst(6))"
         }
-        // Already has a + or is in another format — return as-is after cleaning spaces
         return raw.hasPrefix("+") ? raw : "+\(digits)"
     }
 
@@ -46,9 +50,15 @@ struct AccountView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
 
-            // ── Display name (editable field; name is set in signup) ─────────
+            // ── Display name — editable ──────────────────────────────────────
             Section {
-                TextField("Name", text: $displayName)
+                TextField("Your name", text: $displayName)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .onSubmit {
+                        if canSave { Task { await saveDisplayName() } }
+                    }
             } header: {
                 Text("Your name")
             } footer: {
@@ -83,8 +93,62 @@ struct AccountView: View {
         .navigationTitle("Account")
         .navigationBarTitleDisplayMode(.inline)
         .scrollClearance()
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        Task { await saveDisplayName() }
+                    }
+                    .disabled(!canSave)
+                    .fontWeight(.semibold)
+                }
+            }
+        }
         .onAppear {
-            displayName = auth.currentPerson?.displayName ?? ""
+            let name = auth.currentPerson?.displayName ?? ""
+            displayName = name
+            savedName   = name
+        }
+    }
+
+    // MARK: - Save
+
+    private func saveDisplayName() async {
+        guard let userId = auth.currentPerson?.id else {
+            print("[Account] ABORT: no currentPerson — not signed in")
+            return
+        }
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            print("[Account] ABORT: name is empty")
+            return
+        }
+
+        print("[Account] saving own display_name='\(trimmed)' for id=\(userId)")
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            struct NameUpdate: Encodable {
+                let displayName: String
+                enum CodingKeys: String, CodingKey { case displayName = "display_name" }
+            }
+            try await supabase
+                .from("people")
+                .update(NameUpdate(displayName: trimmed))
+                .eq("id", value: userId.uuidString)
+                .execute()
+
+            print("[Account] display_name saved OK → '\(trimmed)'")
+            savedName = trimmed                  // clears dirty state → disables Save button
+            await auth.refreshCurrentPerson()   // updates Profile header and everywhere else
+        } catch {
+            print("[Account] save FAILED: \(error)")
+            if let pgErr = error as? PostgrestError {
+                print("[Account] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+            }
         }
     }
 }

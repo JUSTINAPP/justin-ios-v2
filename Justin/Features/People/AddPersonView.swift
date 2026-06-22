@@ -36,6 +36,9 @@ struct AddPersonView: View {
     @State private var isSaving = false
     @State private var saveError: String?
     @State private var showSaveError = false
+    /// True when editing a person who has a real Justin account (auth_id present).
+    /// Their phone is their identity — show read-only. All override fields stay editable.
+    @State private var isVerifiedPerson = false
 
     struct DraftOccasion: Identifiable {
         let id = UUID()
@@ -159,13 +162,39 @@ struct AddPersonView: View {
 
     private var phoneSection: some View {
         Section {
-            PhoneNumberField(normalised: $phone)
-                .listRowInsets(EdgeInsets())
+            if isVerifiedPerson && isEditing {
+                // Verified person's phone is their account identity — show read-only.
+                // All override fields (name, relationship, notes) remain editable above.
+                HStack {
+                    Text(formattedPhone.isEmpty ? phone : formattedPhone)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("account identity")
+                        .font(.system(.caption))
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                PhoneNumberField(normalised: $phone)
+                    .listRowInsets(EdgeInsets())
+            }
         } header: {
             Text("Phone number")
         } footer: {
-            Text("Helps gifts reach them later. Only you can see this.")
+            Text(isVerifiedPerson && isEditing
+                 ? "This is their Justin account number and can't be changed here."
+                 : "Helps gifts reach them later. Only you can see this.")
         }
+    }
+
+    /// Formats the raw stored phone number for display (e.g. "61409774429" → "+61 409 774 429").
+    private var formattedPhone: String {
+        guard !phone.isEmpty else { return "" }
+        let digits = phone.filter(\.isNumber)
+        if digits.count == 11, digits.hasPrefix("61") {
+            let sub = digits.dropFirst(2)
+            return "+61 \(sub.prefix(3)) \(sub.dropFirst(3).prefix(3)) \(sub.dropFirst(6))"
+        }
+        return phone.hasPrefix("+") ? phone : "+\(digits)"
     }
 
     private var datesSection: some View {
@@ -296,21 +325,27 @@ struct AddPersonView: View {
             struct PersonRow: Decodable {
                 let displayName: String?
                 let phone: String?
+                let authId: UUID?
                 enum CodingKeys: String, CodingKey {
                     case displayName = "display_name"
                     case phone
+                    case authId = "auth_id"
                 }
             }
             let rows: [PersonRow] = try await supabase
                 .from("people")
-                .select("display_name, phone")
+                .select("display_name, phone, auth_id")
                 .eq("id", value: pid.uuidString)
                 .limit(1)
                 .execute()
                 .value
             if let p = rows.first {
+                // Only set name from display_name as initial fallback; override row takes priority below.
                 name = p.displayName ?? ""
                 phone = p.phone ?? ""
+                // Verified people have a real account — their phone is identity-locked.
+                isVerifiedPerson = p.authId != nil
+                print("[Edit] person \(pid): isVerified=\(isVerifiedPerson) phone=\(phone.isEmpty ? "nil" : "set")")
             }
         } catch {
             print("[AddPerson] load people row skipped: \(error)")
@@ -557,9 +592,21 @@ struct AddPersonView: View {
     }
 
     private func update() async {
-        guard let pid = personId else { return }
+        guard let pid = personId else {
+            print("[Edit] ABORT: personId is nil")
+            return
+        }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmedName.isEmpty, let owner = auth.currentPerson else { return }
+        guard !trimmedName.isEmpty else {
+            print("[Edit] ABORT: name is empty")
+            return
+        }
+        guard let owner = auth.currentPerson else {
+            print("[Edit] ABORT: auth.currentPerson is nil — not signed in")
+            return
+        }
+
+        print("[Edit] update() — pid=\(pid) isVerified=\(isVerifiedPerson) customLabel='\(trimmedName)' relationship='\(relationship)' notes='\(notes.isEmpty ? "(empty)" : notes)'")
 
         isSaving = true
         saveError = nil
