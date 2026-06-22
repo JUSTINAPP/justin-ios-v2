@@ -1,29 +1,16 @@
 import SwiftUI
+import Supabase
 
 struct DeleteAccountView: View {
-    @State private var confirmText = ""
-    @State private var scheduledForDeletion: Bool
+    @EnvironmentObject var auth: AuthService
+    @Environment(\.dismiss) private var dismiss
 
-    init(scheduledForDeletion: Bool = false) {
-        _scheduledForDeletion = State(initialValue: scheduledForDeletion)
-    }
+    @State private var showConfirm    = false
+    @State private var isDeleting     = false
+    @State private var deleteError:   String? = nil
+    @State private var showError      = false
 
     var body: some View {
-        Group {
-            if scheduledForDeletion {
-                scheduledView
-            } else {
-                warningView
-            }
-        }
-        .navigationTitle("Delete your account")
-        .navigationBarTitleDisplayMode(.inline)
-        .scrollClearance()
-    }
-
-    // MARK: - Warning screen
-
-    private var warningView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
 
@@ -34,16 +21,12 @@ struct DeleteAccountView: View {
                         .foregroundColor(.brandDeep)
 
                     VStack(alignment: .leading, spacing: 16) {
-                        explanationRow(
-                            icon: "xmark.circle.fill",
-                            iconColor: .red.opacity(0.65),
-                            text: "Your account, your shelf, and any messages you haven't sent yet will be deleted."
-                        )
-                        explanationRow(
-                            icon: "heart.fill",
-                            iconColor: .brandRose,
-                            text: "Gifts you've already given will stay with the people who received them. Those are their keepsakes to keep."
-                        )
+                        row(icon: "xmark.circle.fill", color: .red.opacity(0.65),
+                            text: "Your account, shelf, and any messages you received are permanently deleted.")
+                        row(icon: "heart.fill", color: .brandRose,
+                            text: "Gifts you've given others remain with them — those are their keepsakes to keep, shown from a former user.")
+                        row(icon: "photo.on.rectangle.angled", color: .secondary,
+                            text: "Media files (voice recordings, photos) will be cleaned up separately.")
                     }
                     .padding(16)
                     .background(Color(.secondarySystemFill))
@@ -52,83 +35,81 @@ struct DeleteAccountView: View {
 
                 Divider()
 
-                // Confirm deletion
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("To confirm, type DELETE below.")
-                        .font(.system(.subheadline))
-                        .foregroundColor(.secondary)
-
-                    TextField("", text: $confirmText)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .padding(12)
-                        .background(Color(.secondarySystemFill))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(
-                                    confirmText == "DELETE" ? Color.red.opacity(0.45) : Color.clear,
-                                    lineWidth: 1.5
-                                )
-                        )
-
-                    Button {
-                        // TODO(supabase): Schedule account deletion
-                        // 1. POST to rpc/schedule_account_deletion
-                        //    → sets deletion_scheduled_at = now() + interval '30 days' on the user row
-                        // 2. Call supabase.auth.signOut() to sign the user out immediately
-                        // Restore path: any successful sign-in within 30 days should cancel the deletion.
-                        //    Implement as an Edge Function or Auth hook that checks deletion_scheduled_at
-                        //    on sign-in and nulls it out if still within the window.
-                        scheduledForDeletion = true
-                    } label: {
+                // Delete button
+                Button(role: .destructive) {
+                    showConfirm = true
+                } label: {
+                    if isDeleting {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(.white)
+                            Text("Deleting…")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(14)
+                        .background(Color.red.opacity(0.7))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
                         Text("Delete my account")
-                            .font(.system(.body, weight: .semibold))
-                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(14)
-                            .background(confirmText == "DELETE" ? Color.red : Color.red.opacity(0.3))
+                            .background(Color.red)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .animation(.easeInOut(duration: 0.12), value: confirmText == "DELETE")
+                            .foregroundColor(.white)
+                            .font(.system(.body, weight: .semibold))
                     }
-                    .disabled(confirmText != "DELETE")
                 }
+                .buttonStyle(.plain)
+                .disabled(isDeleting)
             }
             .padding(20)
         }
-    }
-
-    // MARK: - Scheduled deletion screen
-
-    private var scheduledView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Spacer().frame(height: 36)
-
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 52, weight: .light))
-                    .foregroundColor(.brandPurple.opacity(0.5))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.bottom, 8)
-
-                Text("Your account is scheduled for deletion in 30 days.")
-                    .font(.system(.title3, weight: .semibold))
-
-                Text("Changed your mind? Just sign back in within 30 days and everything will be restored.")
-                    .font(.system(.body))
-                    .foregroundColor(.secondary)
-            }
-            .padding(20)
+        .navigationTitle("Delete your account")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollClearance()
+        .alert("Permanently delete your account?", isPresented: $showConfirm) {
+            Button("Delete", role: .destructive) { Task { await deleteAccount() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes everything sent to you and removes your account. Gifts you've given others will remain, shown from a former user. This can't be undone.")
+        }
+        .alert("Couldn't delete account", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "Something went wrong. Please try again or contact support.")
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Delete
+
+    private func deleteAccount() async {
+        print("[DeleteAccount] calling delete_my_account_data")
+        isDeleting = true
+
+        do {
+            struct NoParams: Encodable {}
+            try await supabase
+                .rpc("delete_my_account_data", params: NoParams())
+                .execute()
+            print("[DeleteAccount] RPC succeeded — signing out")
+            await auth.signOut()
+        } catch {
+            print("[DeleteAccount] RPC failed: \(error)")
+            if let pgErr = error as? PostgrestError {
+                print("[DeleteAccount] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+            }
+            isDeleting = false
+            deleteError = "Couldn't delete your account right now. Please try again or contact support."
+            showError = true
+        }
+    }
+
+    // MARK: - Helper
 
     @ViewBuilder
-    private func explanationRow(icon: String, iconColor: Color, text: String) -> some View {
+    private func row(icon: String, color: Color, text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(iconColor)
+                .foregroundColor(color)
                 .font(.system(.body))
                 .padding(.top, 2)
             Text(text)
@@ -137,10 +118,7 @@ struct DeleteAccountView: View {
     }
 }
 
-#Preview("Warning") {
+#Preview {
     NavigationStack { DeleteAccountView() }
-}
-
-#Preview("Scheduled") {
-    NavigationStack { DeleteAccountView(scheduledForDeletion: true) }
+        .environmentObject(AuthService())
 }

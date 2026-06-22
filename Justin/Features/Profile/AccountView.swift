@@ -3,9 +3,13 @@ import Supabase
 
 struct AccountView: View {
     @EnvironmentObject var auth: AuthService
-    @State private var displayName = ""
-    @State private var savedName   = ""   // last-persisted value; used for dirty detection
-    @State private var isSaving    = false
+    @State private var displayName       = ""
+    @State private var savedName         = ""
+    @State private var isSaving          = false
+    @State private var showDeleteConfirm = false
+    @State private var isDeletingAccount = false
+    @State private var deleteError:    String? = nil
+    @State private var showDeleteError = false
 
     // MARK: - Derived state
 
@@ -84,15 +88,34 @@ struct AccountView: View {
             // ── Danger zone ──────────────────────────────────────────────────
             Section {
                 Button(role: .destructive) {
-                    // TODO: delete account flow
+                    showDeleteConfirm = true
                 } label: {
-                    Text("Delete account")
+                    if isDeletingAccount {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(.red)
+                            Text("Deleting…")
+                        }
+                    } else {
+                        Text("Delete account")
+                    }
                 }
+                .disabled(isDeletingAccount)
             }
         }
         .navigationTitle("Account")
         .navigationBarTitleDisplayMode(.inline)
         .scrollClearance()
+        .alert("Permanently delete your account?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) { Task { await deleteAccount() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes everything sent to you and removes your account. Gifts you've given others will remain, shown from a former user. This can't be undone.")
+        }
+        .alert("Couldn't delete account", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "Something went wrong. Please try again or contact support.")
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 if isSaving {
@@ -149,6 +172,31 @@ struct AccountView: View {
             if let pgErr = error as? PostgrestError {
                 print("[Account] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
             }
+        }
+    }
+    // MARK: - Delete account
+
+    private func deleteAccount() async {
+        print("[DeleteAccount] calling delete_my_account_data")
+        isDeletingAccount = true
+        // No defer reset — we sign out on success (view goes away) or reset on failure.
+
+        do {
+            struct NoParams: Encodable {}
+            try await supabase
+                .rpc("delete_my_account_data", params: NoParams())
+                .execute()
+            print("[DeleteAccount] RPC succeeded — signing out")
+            await auth.signOut()
+            // auth.signOut() transitions state to .signedOut, unwinding to the welcome screen.
+        } catch {
+            print("[DeleteAccount] RPC failed: \(error)")
+            if let pgErr = error as? PostgrestError {
+                print("[DeleteAccount] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+            }
+            isDeletingAccount = false
+            deleteError = "Couldn't delete your account right now. Please try again or contact support."
+            showDeleteError = true
         }
     }
 }
