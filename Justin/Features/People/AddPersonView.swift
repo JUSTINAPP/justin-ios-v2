@@ -433,7 +433,13 @@ struct AddPersonView: View {
         }
 
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        let cleanPhone: String? = phone.isEmpty ? nil : phone
+        // Normalise to E.164 before any Supabase call.
+        // PhoneNumberField already outputs "+61...", but normalise defensively.
+        let rawPhone    = phone.isEmpty ? nil : phone
+        let cleanPhone: String? = rawPhone.map { normaliseToE164($0) }
+        if let r = rawPhone, let c = cleanPhone, r != c {
+            print("======= [AddPerson] phone normalised: '\(r)' → '\(c)' =======")
+        }
         print("======= [AddPerson] data: name='\(trimmedName)' phone=\(cleanPhone ?? "nil") occasions=\(occasions.count) =======")
 
         guard !trimmedName.isEmpty else {
@@ -720,6 +726,20 @@ struct AddPersonView: View {
             case remindBeforeRecording = "remind_before_recording"
         }
     }
+}
+
+// MARK: - Phone normalisation (module-level so it's available in AddPersonView and AuthService)
+
+/// Converts any common phone format to canonical E.164 ("+" + digits, no spaces).
+/// "61409774429" → "+61409774429"
+/// "+61 409 774 429" → "+61409774429"
+/// "+61409774429" → "+61409774429"  (unchanged)
+/// "" → ""
+func normaliseToE164(_ raw: String) -> String {
+    guard !raw.isEmpty else { return raw }
+    let digits = raw.filter(\.isNumber)
+    guard !digits.isEmpty else { return raw }
+    return "+" + digits
 }
 
 #Preview {

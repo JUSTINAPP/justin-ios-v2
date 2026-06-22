@@ -37,11 +37,12 @@ final class AuthService: ObservableObject {
         clearError()
         isLoading = true
         defer { isLoading = false }
-        print("[Auth] sending OTP to: \(phone)")
+        let normPhone = normaliseToE164(phone)
+        print("[Auth] sending OTP to: \(phone) → '\(normPhone)'")
         do {
-            try await supabase.auth.signInWithOTP(phone: phone)
-            print("[Auth] sendOTP succeeded for \(phone)")
-            state = .awaitingCode(phone: phone)
+            try await supabase.auth.signInWithOTP(phone: normPhone)
+            print("[Auth] sendOTP succeeded for \(normPhone)")
+            state = .awaitingCode(phone: normPhone)
         } catch {
             logAuthError("sendOTP", error)
             errorMessage = "Couldn't send the code. Check the number and try again."
@@ -52,10 +53,11 @@ final class AuthService: ObservableObject {
         clearError()
         isLoading = true
         defer { isLoading = false }
-        print("[Auth] verifyOTP phone: \(phone)  code: \(code)")
+        let normPhone = normaliseToE164(phone)
+        print("[Auth] verifyOTP phone: \(phone) → '\(normPhone)'  code: \(code)")
         do {
             let response = try await supabase.auth.verifyOTP(
-                phone: phone,
+                phone: normPhone,
                 token: code,
                 type: .sms
             )
@@ -63,7 +65,7 @@ final class AuthService: ObservableObject {
             print("[AuthCheck] current user id: \(String(describing: supabase.auth.currentUser?.id))")
             print("[AuthCheck] current session exists: \(supabase.auth.currentSession != nil)")
             print("[AuthCheck] access token present: \(supabase.auth.currentSession?.accessToken != nil)")
-            await handleVerifiedUser(userId: response.user.id, phone: phone)
+            await handleVerifiedUser(userId: response.user.id, phone: normPhone)
         } catch {
             logAuthError("verifyOTP", error)
             errorMessage = "Incorrect code. Please try again."
@@ -166,11 +168,19 @@ final class AuthService: ObservableObject {
     private func restoreSession() async {
         do {
             let session = try await supabase.auth.session
-            await handleVerifiedUser(userId: session.user.id, phone: session.user.phone ?? "")
+            // Supabase auth returns phone without "+" (e.g. "61409774429").
+            // Normalise to E.164 before storing as pendingPhone / passing to RPC.
+            let rawPhone = session.user.phone ?? ""
+            let phone    = normaliseToE164(rawPhone)
+            if !rawPhone.isEmpty { print("[Auth] restoreSession phone: '\(rawPhone)' → '\(phone)'") }
+            await handleVerifiedUser(userId: session.user.id, phone: phone)
         } catch {
             state = .signedOut
         }
     }
+
+    // normaliseToE164 is defined as a module-level function in AddPersonView.swift
+    // so it's shared across the module without duplication.
 
     private func handleVerifiedUser(userId: UUID, phone: String) async {
         do {
