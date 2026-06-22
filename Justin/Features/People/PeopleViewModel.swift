@@ -6,7 +6,7 @@ import Combine
 
 struct PeopleEntry: Identifiable, Hashable {
     let id: UUID
-    let name: String
+    var name: String      // var so override display_name can be applied after initial fetch
     var givingGiftId: UUID?    // gift the current user authored TO this person
     var receivingGiftId: UUID? // gift this person authored FOR the current user
     var avatarStoragePath: String? = nil
@@ -83,21 +83,30 @@ final class PeopleViewModel: ObservableObject {
                 struct OverrideInfo: Decodable {
                     let personId: UUID
                     let avatarStoragePath: String?
+                    /// The giver's private label for this person (person_overrides.custom_label).
+                    /// Preferred over people.display_name everywhere in giver-facing views.
+                    let customLabel: String?
                     enum CodingKeys: String, CodingKey {
-                        case personId = "person_id"
+                        case personId          = "person_id"
                         case avatarStoragePath = "avatar_storage_path"
+                        case customLabel       = "custom_label"
                     }
                 }
                 let overrides: [OverrideInfo] = try await supabase
                     .from("person_overrides")
-                    .select("person_id, avatar_storage_path")
+                    .select("person_id, avatar_storage_path, custom_label")
                     .eq("owner_id", value: currentPersonId.uuidString)
                     .execute()
                     .value
 
-                // Apply avatar paths to already-known (gift-linked) persons.
+                // Apply avatar paths and custom labels to gift-linked persons.
+                // custom_label ("Bill") takes priority over people.display_name ("William")
+                // so the giver's private label survives account convergence.
                 for o in overrides {
                     entries[o.personId]?.avatarStoragePath = o.avatarStoragePath
+                    if let label = o.customLabel, !label.isEmpty {
+                        entries[o.personId]?.name = label
+                    }
                 }
 
                 // Fetch names for standalone contacts not yet in entries.
@@ -111,14 +120,18 @@ final class PeopleViewModel: ObservableObject {
                         .value
 
                     for row in peopleRows {
-                        print("[People] person \(row.id) displayName=\(row.displayName ?? "nil")")
-                        let avatarPath = overrides.first(where: { $0.personId == row.id })?.avatarStoragePath
+                        let overrideInfo = overrides.first(where: { $0.personId == row.id })
+                        // Prefer custom_label; fall back to people.display_name
+                        let resolvedName = overrideInfo?.customLabel?.isEmpty == false
+                            ? overrideInfo!.customLabel!
+                            : (row.displayName ?? "Unknown")
+                        print("[People] person \(row.id) name=\(resolvedName) (source: \(overrideInfo?.customLabel != nil ? "custom_label" : "display_name"))")
                         entries[row.id] = PeopleEntry(
                             id: row.id,
-                            name: row.displayName ?? "Unknown",
+                            name: resolvedName,
                             givingGiftId: nil,
                             receivingGiftId: nil,
-                            avatarStoragePath: avatarPath
+                            avatarStoragePath: overrideInfo?.avatarStoragePath
                         )
                     }
                 }

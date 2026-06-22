@@ -80,17 +80,42 @@ final class AuthService: ObservableObject {
         defer { isLoading = false }
         print("[Name] saving name '\(name)' for user: \(String(describing: supabase.auth.currentUser?.id))")
         print("[Name] pendingUserId: \(userId)  pendingPhone: \(phone)")
-        print("[Name] operation: INSERT into people")
+        print("[Name] operation: claim_or_create_account RPC (upgrades placeholder or creates fresh)")
         do {
-            let insert = PersonInsert(id: userId, displayName: name, phone: phone, authId: userId)
-            let person: Person = try await supabase
-                .from("people")
-                .insert(insert)
-                .select()
-                .single()
+            // SECURITY DEFINER RPC — finds an existing placeholder row with this phone
+            // and upgrades it to a real account (sets auth_id, is_verified, display_name),
+            // or creates a fresh row if none exists. Returns the people.id to use.
+            // This replaces the plain INSERT which fails 23505 when a placeholder already
+            // exists for this phone number (e.g. someone previously sent them a gift).
+            struct ClaimParams: Encodable {
+                let pDisplayName: String
+                let pPhone: String
+                enum CodingKeys: String, CodingKey {
+                    case pDisplayName = "p_display_name"
+                    case pPhone       = "p_phone"
+                }
+            }
+            print("[Name] calling claim_or_create_account displayName='\(name)' phone='\(phone)'")
+            let personId: UUID = try await supabase
+                .rpc("claim_or_create_account", params: ClaimParams(pDisplayName: name, pPhone: phone))
                 .execute()
                 .value
-            print("[Name] save succeeded — person id: \(person.id)")
+            print("[Name] claim_or_create_account returned id=\(personId)")
+
+            // Fetch the full Person row so currentPerson is populated correctly.
+            let rows: [Person] = try await supabase
+                .from("people")
+                .select()
+                .eq("id", value: personId.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            guard let person = rows.first else {
+                throw NSError(domain: "JustinAuth", code: -1, userInfo: [
+                    NSLocalizedDescriptionKey: "Account created but couldn't load profile. Please restart the app."
+                ])
+            }
+            print("[Name] save succeeded — person id: \(person.id) displayName: \(person.displayName ?? "nil")")
             currentPerson = person
             // Convergence before signedIn so the Shelf fetch sees re-pointed gifts immediately.
             await runConvergence(userId: userId, phone: phone)

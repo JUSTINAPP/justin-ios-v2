@@ -318,10 +318,12 @@ struct AddPersonView: View {
 
         do {
             struct OverrideRow: Decodable {
+                let customLabel: String?
                 let relationship: String?
                 let notes: String?
                 let avatarStoragePath: String?
                 enum CodingKeys: String, CodingKey {
+                    case customLabel  = "custom_label"
                     case relationship, notes
                     case avatarStoragePath = "avatar_storage_path"
                 }
@@ -335,6 +337,10 @@ struct AddPersonView: View {
                 .execute()
                 .value
             if let o = overrides.first {
+                // Prefer the giver's private label ("Bill") over the person's own name ("William")
+                if let label = o.customLabel, !label.isEmpty {
+                    name = label
+                }
                 relationship = o.relationship ?? ""
                 notes = o.notes ?? ""
                 existingAvatarStoragePath = o.avatarStoragePath
@@ -419,39 +425,29 @@ struct AddPersonView: View {
             var resolvedId: UUID
 
             if let ph = cleanPhone {
-                print("======= [AddPerson] step 1: phone=\(ph) — checking for existing =======")
-                struct ExistingRow: Decodable { let id: UUID }
-                let existing: [ExistingRow] = try await supabase
-                    .from("people")
-                    .select("id")
-                    .eq("phone", value: ph)
-                    .limit(1)
+                // Delegate to a SECURITY DEFINER RPC that sees all people rows (bypasses RLS).
+                // Client-side lookup fails for phones belonging to OTHER users because RLS
+                // hides their rows → client thinks no one exists → INSERT → 23505.
+                // The RPC returns the existing person's id (if phone is already registered)
+                // or creates a new placeholder and returns its id.
+                struct FindOrCreateParams: Encodable {
+                    let pPhone: String
+                    let pDisplayName: String
+                    enum CodingKeys: String, CodingKey {
+                        case pPhone       = "p_phone"
+                        case pDisplayName = "p_display_name"
+                    }
+                }
+                print("======= [AddPerson] step 1: calling find_or_create_person_by_phone phone=\(ph) =======")
+                let personId: UUID = try await supabase
+                    .rpc("find_or_create_person_by_phone", params: FindOrCreateParams(
+                        pPhone: ph,
+                        pDisplayName: trimmedName
+                    ))
                     .execute()
                     .value
-
-                if let found = existing.first {
-                    resolvedId = found.id
-                    print("======= [AddPerson] reused existing person id=\(found.id) =======")
-                    struct NameUpdate: Encodable {
-                        let displayName: String
-                        enum CodingKeys: String, CodingKey { case displayName = "display_name" }
-                    }
-                    try await supabase
-                        .from("people")
-                        .update(NameUpdate(displayName: trimmedName))
-                        .eq("id", value: found.id.uuidString)
-                        .execute()
-                    print("======= [AddPerson] step 1: name updated on existing person =======")
-                } else {
-                    let newId = UUID()
-                    print("======= [AddPerson] step 1: inserting new person id=\(newId) =======")
-                    try await supabase
-                        .from("people")
-                        .insert(PendingPersonInsert(id: newId, displayName: trimmedName, phone: ph))
-                        .execute()
-                    resolvedId = newId
-                    print("======= [AddPerson] created new person id=\(newId) =======")
-                }
+                resolvedId = personId
+                print("[AddPerson] find_or_create returned id=\(personId) (existing or new)")
             } else {
                 let newId = UUID()
                 print("======= [AddPerson] step 1: inserting new person (no phone) id=\(newId) =======")
@@ -510,13 +506,14 @@ struct AddPersonView: View {
             }
             print("======= [AddPerson] step 2 OK =======")
 
-            // Step 3 — person_overrides
-            print("======= [AddPerson] step 3: person_overrides ownerId=\(owner.id) personId=\(resolvedId) =======")
+            // Step 3 — person_overrides (stores the giver's private label and details)
+            print("======= [AddPerson] step 3: person_overrides ownerId=\(owner.id) personId=\(resolvedId) displayName='\(trimmedName)' =======")
             try await supabase
                 .from("person_overrides")
                 .upsert(
                     PersonOverrideShape(
                         ownerId: owner.id, personId: resolvedId,
+                        customLabel: trimmedName,           // giver's private label (e.g. "Bill")
                         relationship: relationship.isEmpty ? nil : relationship,
                         notes: notes.isEmpty ? nil : notes,
                         avatarStoragePath: avatarPath
@@ -569,47 +566,9 @@ struct AddPersonView: View {
         defer { isSaving = false }
 
         do {
-            // ── BUG 1 DIAGNOSIS — name edit ──────────────────────────────────
-            print("[NameEdit] WRITE target: people.id=\(pid) display_name='\(trimmedName)'")
-            print("[NameEdit] auth.uid=\(supabase.auth.currentUser?.id.uuidString ?? "NIL") session=\(supabase.auth.currentSession != nil ? "EXISTS" : "NIL")")
-            // ────────────────────────────────────────────────────────────────────
-
-            struct PersonUpdate: Encodable {
-                let displayName: String
-                let phone: String?
-                enum CodingKeys: String, CodingKey {
-                    case displayName = "display_name"
-                    case phone
-                }
-            }
-            try await supabase
-                .from("people")
-                .update(PersonUpdate(displayName: trimmedName, phone: phone.isEmpty ? nil : phone))
-                .eq("id", value: pid.uuidString)
-                .execute()
-
-            print("[NameEdit] people.update() returned without throw")
-
-            // Read-back: confirm what the DB actually has after the write
-            struct VerifyRow: Decodable { let displayName: String?; enum CodingKeys: String, CodingKey { case displayName = "display_name" } }
-            let verify: [VerifyRow] = (try? await supabase.from("people").select("display_name").eq("id", value: pid.uuidString).limit(1).execute().value) ?? []
-            print("[NameEdit] DB read-back display_name='\(verify.first?.displayName ?? "nil")' — expected='\(trimmedName)' match=\(verify.first?.displayName == trimmedName)")
-
-            // ── Auth state at write time ─────────────────────────────────────
-            let _authSessionU = supabase.auth.currentSession
-            print("[AuthDebug update] ── session at write time ──────────────────")
-            print("[AuthDebug update] currentSession: \(_authSessionU != nil ? "EXISTS" : "NIL ← auth.uid() will be NULL server-side")")
-            if let s = _authSessionU {
-                print("[AuthDebug update] session.user.id:   \(s.user.id)")
-                print("[AuthDebug update] accessToken prefix: \(s.accessToken.prefix(24))…")
-                print("[AuthDebug update] isExpired:          \(s.isExpired)")
-                print("[AuthDebug update] expiresAt (unix):   \(s.expiresAt)  now: \(Date().timeIntervalSince1970)")
-            }
-            print("[AuthDebug update] currentUser?.id:    \(supabase.auth.currentUser?.id.uuidString ?? "NIL")")
-            print("[AuthDebug update] auth.currentPerson: \(auth.currentPerson?.id.uuidString ?? "NIL")")
-            print("[AuthDebug update] AuthService.state:  \(auth.state)")
-            print("[AuthDebug update] ─────────────────────────────────────────────")
-            // ────────────────────────────────────────────────────────────────────
+            // Edit writes ONLY to person_overrides (my private label + notes + avatar).
+            // people.display_name is the person's own identity — we must not touch it.
+            print("[Edit] saving custom_label='\(trimmedName)' to person_overrides for person \(pid)")
 
             // Preserve existing avatar path unless a new photo was picked.
             var avatarPath: String? = existingAvatarStoragePath
@@ -621,13 +580,13 @@ struct AddPersonView: View {
                 avatarPath = path
             }
 
-            // onConflict tells PostgREST to UPDATE the existing row when (owner_id, person_id) already exists,
-            // rather than attempting an INSERT that would hit the unique constraint.
+            // Upsert my private override row — custom_label stores MY name for this person.
             try await supabase
                 .from("person_overrides")
                 .upsert(
                     PersonOverrideShape(
                         ownerId: owner.id, personId: pid,
+                        customLabel: trimmedName,
                         relationship: relationship.isEmpty ? nil : relationship,
                         notes: notes.isEmpty ? nil : notes,
                         avatarStoragePath: avatarPath
@@ -635,7 +594,7 @@ struct AddPersonView: View {
                     onConflict: "owner_id,person_id"
                 )
                 .execute()
-            print("[AddPerson] override upsert OK")
+            print("[Edit] person_overrides upsert OK")
 
             // Delete-then-reinsert keeps occasions clean with no stale or duplicate rows.
             try await supabase
@@ -685,12 +644,16 @@ struct AddPersonView: View {
     private struct PersonOverrideShape: Encodable {
         let ownerId: UUID
         let personId: UUID
+        /// The giver's private label for this person (e.g. "Bill" even if people.display_name is "William").
+        /// Stored in person_overrides.custom_label, never in people.display_name.
+        let customLabel: String?
         let relationship: String?
         let notes: String?
         let avatarStoragePath: String?
         enum CodingKeys: String, CodingKey {
-            case ownerId = "owner_id"
-            case personId = "person_id"
+            case ownerId      = "owner_id"
+            case personId     = "person_id"
+            case customLabel  = "custom_label"
             case relationship, notes
             case avatarStoragePath = "avatar_storage_path"
         }

@@ -59,6 +59,20 @@ struct GiftClaimView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
+                // Explicit skip — makes dismissal obvious so users don't feel stuck
+                if message?.isSuccess != true {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("I don't have a code")
+                            .font(.system(.subheadline))
+                            .foregroundStyle(Color.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 Spacer()
             }
             .animation(.spring(duration: 0.35), value: message?.text)
@@ -69,7 +83,7 @@ struct GiftClaimView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(message?.isSuccess == true ? "Done" : "Cancel") {
+                    Button(message?.isSuccess == true ? "Done" : "Skip") {
                         if message?.isSuccess == true { onClaimed() }
                         dismiss()
                     }

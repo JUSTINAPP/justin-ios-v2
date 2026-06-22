@@ -54,23 +54,26 @@ final class GivingViewModel: ObservableObject {
                 byRecipient[info.id, default: (info.name, [])].items.append(item)
             }
 
-            // Query 3 — avatar paths (non-fatal)
+            // Query 3 — override names + avatar paths (non-fatal)
+            // custom_label ("Bill") takes priority over people.display_name ("William")
             let recipientIds = Array(byRecipient.keys)
-            var avatarPaths: [UUID: String] = [:]
+            var avatarPaths:   [UUID: String] = [:]
+            var overrideNames: [UUID: String] = [:]
             if !recipientIds.isEmpty {
                 do {
                     let overrides: [AvatarOverride] = try await supabase
                         .from("person_overrides")
-                        .select("person_id, avatar_storage_path")
+                        .select("person_id, avatar_storage_path, custom_label")
                         .eq("owner_id", value: authorId.uuidString)
                         .in("person_id", values: recipientIds.map(\.uuidString))
                         .execute()
                         .value
                     for o in overrides {
                         if let path = o.avatarStoragePath { avatarPaths[o.personId] = path }
+                        if let label = o.customLabel, !label.isEmpty { overrideNames[o.personId] = label }
                     }
                 } catch {
-                    print("[Giving] avatar paths failed (non-fatal): \(error)")
+                    print("[Giving] overrides failed (non-fatal): \(error)")
                 }
             }
 
@@ -78,7 +81,7 @@ final class GivingViewModel: ObservableObject {
             recipients = byRecipient.map { (recipientId, pair) in
                 RecipientRow(
                     id: recipientId,
-                    recipientName: pair.name,
+                    recipientName: overrideNames[recipientId] ?? pair.name,  // prefer override
                     avatarStoragePath: avatarPaths[recipientId],
                     items: pair.items  // already newest-first from DB order
                 )
@@ -135,9 +138,13 @@ final class GivingViewModel: ObservableObject {
     private struct AvatarOverride: Decodable {
         let personId: UUID
         let avatarStoragePath: String?
+        /// Giver's private label for this person (person_overrides.custom_label).
+        /// Preferred over people.display_name in all giver-facing views.
+        let customLabel: String?
         enum CodingKeys: String, CodingKey {
             case personId          = "person_id"
             case avatarStoragePath = "avatar_storage_path"
+            case customLabel       = "custom_label"
         }
     }
 }
