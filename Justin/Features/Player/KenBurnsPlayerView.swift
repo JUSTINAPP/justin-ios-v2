@@ -91,7 +91,7 @@ struct KenBurnsPlayerView: View {
             guard finished else { return }
             slideshowTask?.cancel()
             playbackEnded = true
-            print("[Player] ended")
+            debugLog("[Player] ended")
         }
     }
 
@@ -122,7 +122,7 @@ struct KenBurnsPlayerView: View {
                         .opacity(fadeOutOpacity)
                 }
                 .onAppear {
-                    print("[Player] photo layer laid out, screen size = \(geo.size)")
+                    debugLog("[Player] photo layer laid out, screen size = \(geo.size)")
                 }
             }
             .ignoresSafeArea()
@@ -365,7 +365,7 @@ struct KenBurnsPlayerView: View {
         case .words:     modeLabel = "words"
         case .photos:    modeLabel = "photos"
         }
-        print("[Player] mode = \(modeLabel)")
+        debugLog("[Player] mode = \(modeLabel)")
 
         isLoading = true
         defer { isLoading = false }
@@ -382,7 +382,7 @@ struct KenBurnsPlayerView: View {
                             let (data, _) = try await URLSession.shared.data(from: url)
                             return (i, UIImage(data: data))
                         } catch {
-                            print("[Player] photo \(i) load failed: \(error)")
+                            debugLog("[Player] photo \(i) load failed: \(error)")
                             return (i, nil)
                         }
                     }
@@ -390,21 +390,21 @@ struct KenBurnsPlayerView: View {
                 for await (i, img) in group { ordered[i] = img }
             }
             loadedImages = ordered.compactMap { $0 }
-            print("[Player] loaded \(loadedImages.count) photos")
+            debugLog("[Player] loaded \(loadedImages.count) photos")
         }
 
         // Load audio — local file for preview, or remote storage path for saved messages
         if let localURL = localAudioURL {
             audio.load(url: localURL)
-            print("[Player] audio ready (local) duration=\(audio.duration)")
+            debugLog("[Player] audio ready (local) duration=\(audio.duration)")
         } else if let path = voicePath {
             do {
                 let url = try await supabase.storage
                     .from("voice").createSignedURL(path: path, expiresIn: 3600)
                 await audio.loadRemote(url)
-                print("[Player] audio ready duration=\(audio.duration)")
+                debugLog("[Player] audio ready duration=\(audio.duration)")
             } catch {
-                print("[Player] voice URL failed: \(error)")
+                debugLog("[Player] voice URL failed: \(error)")
             }
         }
     }
@@ -415,7 +415,7 @@ struct KenBurnsPlayerView: View {
         if playbackEnded { replayFromStart(); return }
         audio.playPause()
         if audio.isPlaying {
-            print("[Player] audio playing")
+            debugLog("[Player] audio playing")
             if mode == .photos { startSlideshow() }
         }
     }
@@ -431,7 +431,7 @@ struct KenBurnsPlayerView: View {
         fadeOutOpacity   = 1.0
         slideshowStarted = false
         audio.playPause()
-        print("[Player] audio playing")
+        debugLog("[Player] audio playing")
         if mode == .photos { startSlideshow() }
     }
 

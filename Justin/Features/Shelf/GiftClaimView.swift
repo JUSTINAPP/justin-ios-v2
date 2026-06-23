@@ -107,7 +107,7 @@ struct GiftClaimView: View {
 
     private func claim() async {
         let codeToSubmit = trimmed
-        print("[Claim] submitting code: \(codeToSubmit)")
+        debugLog("[Claim] submitting code: \(codeToSubmit)")
         isLoading = true
         message   = nil
         defer { isLoading = false }
@@ -117,12 +117,12 @@ struct GiftClaimView: View {
                 .rpc("claim_gift_by_code", params: ClaimParams(pClaimCode: codeToSubmit))
                 .execute()
                 .value
-            print("[Claim] success — giftId: \(giftId)")
+            debugLog("[Claim] success — giftId: \(giftId)")
             message = .success("Found it — it's on your shelf.")
         } catch {
-            print("[Claim] failed — error: \(error)")
+            debugLog("[Claim] failed — error: \(error)")
             if let pgErr = error as? PostgrestError {
-                print("[Claim] PostgrestError: code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+                debugLog("[Claim] PostgrestError: code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
             }
             message = .failure("We couldn't find a gift with that code — double-check it?")
         }

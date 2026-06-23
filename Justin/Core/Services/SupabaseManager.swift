@@ -39,12 +39,12 @@ enum SupabaseManager {
                 .limit(1)
                 .execute()
                 .value
-            print("[Supabase] ✓ Connected — people table reachable (\(rows.count) row(s) visible)")
+            debugLog("[Supabase] ✓ Connected — people table reachable (\(rows.count) row(s) visible)")
         } catch {
             // A PostgREST permission/RLS error still means we reached Supabase —
             // the anon role just has no SELECT grant on this table yet.
-            print("[Supabase] Query result: \(error)")
-            print("[Supabase] (An RLS/permission error confirms connectivity; grant anon SELECT or add auth)")
+            debugLog("[Supabase] Query result: \(error)")
+            debugLog("[Supabase] (An RLS/permission error confirms connectivity; grant anon SELECT or add auth)")
         }
     }
 }

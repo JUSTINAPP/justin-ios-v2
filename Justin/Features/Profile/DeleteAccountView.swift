@@ -82,7 +82,7 @@ struct DeleteAccountView: View {
     // MARK: - Delete
 
     private func deleteAccount() async {
-        print("[DeleteAccount] calling delete_my_account_data")
+        debugLog("[DeleteAccount] calling delete_my_account_data")
         isDeleting = true
 
         do {
@@ -90,12 +90,12 @@ struct DeleteAccountView: View {
             try await supabase
                 .rpc("delete_my_account_data", params: NoParams())
                 .execute()
-            print("[DeleteAccount] RPC succeeded — signing out")
+            debugLog("[DeleteAccount] RPC succeeded — signing out")
             await auth.signOut()
         } catch {
-            print("[DeleteAccount] RPC failed: \(error)")
+            debugLog("[DeleteAccount] RPC failed: \(error)")
             if let pgErr = error as? PostgrestError {
-                print("[DeleteAccount] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+                debugLog("[DeleteAccount] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
             }
             isDeleting = false
             deleteError = "Couldn't delete your account right now. Please try again or contact support."

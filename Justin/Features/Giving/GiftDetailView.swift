@@ -62,10 +62,10 @@ struct GiftDetailView: View {
             if giftId != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        print("[ShareDebug] GiftDetailView share button tapped")
-                        print("[ShareDebug]   giftId:     \(giftId?.uuidString ?? "nil")")
-                        print("[ShareDebug]   shareToken: \(shareToken ?? "nil")")
-                        print("[ShareDebug]   SOURCE: GiftDetailView @State shareToken (loaded in loadMessages)")
+                        debugLog("[ShareDebug] GiftDetailView share button tapped")
+                        debugLog("[ShareDebug]   giftId:     \(giftId?.uuidString ?? "nil")")
+                        debugLog("[ShareDebug]   shareToken: \(shareToken ?? "nil")")
+                        debugLog("[ShareDebug]   SOURCE: GiftDetailView @State shareToken (loaded in loadMessages)")
                         showShare = true
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -310,9 +310,9 @@ struct GiftDetailView: View {
                 .execute()
                 .value
             messages = rows
-            print("[GiftDetail] loaded \(rows.count) messages")
+            debugLog("[GiftDetail] loaded \(rows.count) messages")
         } catch {
-            print("[GiftDetail] fetch failed: \(error)")
+            debugLog("[GiftDetail] fetch failed: \(error)")
         }
 
         // Load the gift's share_token for the share sheet
@@ -325,9 +325,9 @@ struct GiftDetailView: View {
                 .execute()
                 .value
             shareToken = rows.first?.shareToken
-            print("[ShareDebug] GiftDetailView loaded shareToken: \(shareToken ?? "nil") for giftId: \(giftId.uuidString)")
+            debugLog("[ShareDebug] GiftDetailView loaded shareToken: \(shareToken ?? "nil") for giftId: \(giftId.uuidString)")
         } catch {
-            print("[GiftDetail] share_token fetch failed: \(error)")
+            debugLog("[GiftDetail] share_token fetch failed: \(error)")
         }
 
         // Load the author's own avatar for the player's sender circle.
@@ -353,9 +353,9 @@ struct GiftDetailView: View {
                     .execute()
                     .value
                 recipientAvatarPath = rows.first?.avatarStoragePath
-                print("[GiftDetail] recipientAvatarPath = \(recipientAvatarPath ?? "nil")")
+                debugLog("[GiftDetail] recipientAvatarPath = \(recipientAvatarPath ?? "nil")")
             } catch {
-                print("[GiftDetail] avatar path fetch failed: \(error)")
+                debugLog("[GiftDetail] avatar path fetch failed: \(error)")
             }
         }
     }
@@ -371,7 +371,7 @@ struct GiftDetailView: View {
                 .eq("id", value: message.id.uuidString)
                 .execute()
         } catch {
-            print("[GiftDetail] delete failed: \(error)")
+            debugLog("[GiftDetail] delete failed: \(error)")
         }
     }
 }

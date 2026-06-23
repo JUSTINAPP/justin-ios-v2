@@ -182,7 +182,7 @@ final class PeopleViewModel: ObservableObject {
                         let resolvedName = overrideInfo?.customLabel?.isEmpty == false
                             ? overrideInfo!.customLabel!
                             : (row.displayName ?? "Unknown")
-                        print("[People] person \(row.id) name=\(resolvedName) (source: \(overrideInfo?.customLabel != nil ? "custom_label" : "display_name"))")
+                        debugLog("[People] person \(row.id) name=\(resolvedName) (source: \(overrideInfo?.customLabel != nil ? "custom_label" : "display_name"))")
                         entries[row.id] = PeopleEntry(
                             id: row.id,
                             name: resolvedName,
@@ -193,11 +193,11 @@ final class PeopleViewModel: ObservableObject {
                     }
                 }
             } catch {
-                print("[People] overrides fetch skipped: \(error)")
+                debugLog("[People] overrides fetch skipped: \(error)")
             }
 
             people = entries.values.sorted { $0.name < $1.name }
-            print("[People] loaded \(people.count) people")
+            debugLog("[People] loaded \(people.count) people")
 
             // ── Upcoming occasions ─────────────────────────────────────────────
             do {
@@ -237,7 +237,7 @@ final class PeopleViewModel: ObservableObject {
 
                 // Strip: only occasions within 60 days.
                 upcomingOccasions = all.filter { $0.daysUntil <= 60 }
-                print("[ComingUp] loaded \(upcomingOccasions.count) upcoming occasions (of \(all.count) total)")
+                debugLog("[ComingUp] loaded \(upcomingOccasions.count) upcoming occasions (of \(all.count) total)")
 
                 // Inline list: soonest per person (any window).
                 var nextByPerson: [UUID: UpcomingOccasion] = [:]
@@ -248,11 +248,11 @@ final class PeopleViewModel: ObservableObject {
                 }
                 nextOccasionByPersonId = nextByPerson
             } catch {
-                print("[ComingUp] occasions fetch failed (non-fatal): \(error)")
+                debugLog("[ComingUp] occasions fetch failed (non-fatal): \(error)")
             }
 
         } catch {
-            print("[People] fetch failed: \(error)")
+            debugLog("[People] fetch failed: \(error)")
         }
     }
 

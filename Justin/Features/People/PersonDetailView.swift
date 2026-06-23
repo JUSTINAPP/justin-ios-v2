@@ -318,32 +318,32 @@ struct PersonDetailView: View {
 
     private func uploadAvatar(item: PhotosPickerItem) async {
         guard let ownerId = auth.currentPerson?.id else {
-            print("[Avatar] guard failed — no ownerId")
+            debugLog("[Avatar] guard failed — no ownerId")
             return
         }
         guard let rawData = try? await item.loadTransferable(type: Data.self),
               let originalImage = UIImage(data: rawData),
               let data = compressedAvatarData(from: originalImage) else {
-            print("[Avatar] guard failed — could not load/compress image")
+            debugLog("[Avatar] guard failed — could not load/compress image")
             return
         }
-        print("[Avatar] image: \(rawData.count / 1024) KB raw → \(data.count / 1024) KB compressed")
+        debugLog("[Avatar] image: \(rawData.count / 1024) KB raw → \(data.count / 1024) KB compressed")
 
         isUploadingAvatar = true
         defer { isUploadingAvatar = false }
 
-        print("[Avatar] WRITE — before: avatarStoragePath = \(avatarStoragePath ?? "nil")")
+        debugLog("[Avatar] WRITE — before: avatarStoragePath = \(avatarStoragePath ?? "nil")")
 
         let uploadId = UUID().uuidString
         let path = "avatars/\(ownerId)/\(person.id)/\(uploadId).jpg"
-        print("[Avatar] uploading to path: \(path)  size=\(data.count) bytes")
+        debugLog("[Avatar] uploading to path: \(path)  size=\(data.count) bytes")
 
         do {
             try await supabase.storage
                 .from("photos")
                 .upload(path, data: data,
                         options: FileOptions(contentType: "image/jpeg", upsert: false))
-            print("[Avatar] upload succeeded")
+            debugLog("[Avatar] upload succeeded")
 
             // Upsert only avatar_storage_path — leaves relationship/notes untouched.
             struct AvatarPathUpsert: Encodable {
@@ -357,26 +357,26 @@ struct PersonDetailView: View {
                 }
             }
             let upsertPayload = AvatarPathUpsert(ownerId: ownerId, personId: person.id, avatarStoragePath: path)
-            print("[Avatar] WRITE → person_overrides.avatar_storage_path = \(path)")
+            debugLog("[Avatar] WRITE → person_overrides.avatar_storage_path = \(path)")
             try await supabase
                 .from("person_overrides")
                 .upsert(upsertPayload, onConflict: "owner_id,person_id")
                 .execute()
-            print("[Avatar] person_overrides upsert succeeded (onConflict owner_id,person_id)")
+            debugLog("[Avatar] person_overrides upsert succeeded (onConflict owner_id,person_id)")
 
             // Cache the uploaded image immediately so CachedAvatarView shows it
             // the moment avatarStoragePath switches to the new path — no second fetch needed.
             if let uiImage = UIImage(data: data) {
                 AvatarCache.shared.store(uiImage, for: path)
-                print("[Avatar] image cached for path \(path)")
+                debugLog("[Avatar] image cached for path \(path)")
             }
             avatarStoragePath = path
-            print("[Avatar] WRITE — after: avatarStoragePath = \(path)")
+            debugLog("[Avatar] WRITE — after: avatarStoragePath = \(path)")
 
         } catch {
-            print("[Avatar] FAILED — error: \(error)")
+            debugLog("[Avatar] FAILED — error: \(error)")
             if let pgErr = error as? PostgrestError {
-                print("[Avatar] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+                debugLog("[Avatar] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
             }
         }
     }
@@ -409,7 +409,7 @@ struct PersonDetailView: View {
             // Placeholder recipients (auth_id null) can't send messages, so blocking is irrelevant.
             personHasAccount = rows.first?.authId != nil
         } catch {
-            print("[PersonDetail] phone load skipped: \(error)")
+            debugLog("[PersonDetail] phone load skipped: \(error)")
         }
 
         do {
@@ -434,12 +434,12 @@ struct PersonDetailView: View {
                 relationship = o.relationship ?? ""
                 notes = o.notes ?? ""
                 avatarStoragePath = o.avatarStoragePath
-                print("[Avatar] READ ← person_overrides.avatar_storage_path = \(o.avatarStoragePath ?? "nil")")
+                debugLog("[Avatar] READ ← person_overrides.avatar_storage_path = \(o.avatarStoragePath ?? "nil")")
             } else {
-                print("[Avatar] READ — no person_overrides row found for this person")
+                debugLog("[Avatar] READ — no person_overrides row found for this person")
             }
         } catch {
-            print("[PersonDetail] overrides load skipped: \(error)")
+            debugLog("[PersonDetail] overrides load skipped: \(error)")
         }
 
         do {
@@ -473,7 +473,7 @@ struct PersonDetailView: View {
                 )
             }
         } catch {
-            print("[PersonDetail] occasions load skipped: \(error)")
+            debugLog("[PersonDetail] occasions load skipped: \(error)")
         }
 
         // Check block status — RLS ensures we only see our own blocks
@@ -491,7 +491,7 @@ struct PersonDetailView: View {
                 .value
             isBlocked = !rows.isEmpty
         } catch {
-            print("[Block] status check skipped: \(error)")
+            debugLog("[Block] status check skipped: \(error)")
         }
     }
 
@@ -503,28 +503,28 @@ struct PersonDetailView: View {
     }
 
     private func blockPerson() async {
-        print("[Block] blocking: \(name) (\(person.id))")
+        debugLog("[Block] blocking: \(name) (\(person.id))")
         do {
             try await supabase
                 .rpc("block_person", params: BlockParams(pBlockedId: person.id))
                 .execute()
             isBlocked = true
-            print("[Block] blocked: \(person.id)")
+            debugLog("[Block] blocked: \(person.id)")
         } catch {
-            print("[Block] block failed: \(error)")
+            debugLog("[Block] block failed: \(error)")
         }
     }
 
     private func unblockPerson() async {
-        print("[Block] unblocking: \(name) (\(person.id))")
+        debugLog("[Block] unblocking: \(name) (\(person.id))")
         do {
             try await supabase
                 .rpc("unblock_person", params: BlockParams(pBlockedId: person.id))
                 .execute()
             isBlocked = false
-            print("[Block] unblocked: \(person.id)")
+            debugLog("[Block] unblocked: \(person.id)")
         } catch {
-            print("[Block] unblock failed: \(error)")
+            debugLog("[Block] unblock failed: \(error)")
         }
     }
 
@@ -536,10 +536,10 @@ struct PersonDetailView: View {
         // No defer reset — we pop immediately on success; reset only on failure.
 
         // ── BUG 2 DIAGNOSIS ────────────────────────────────────────────────────
-        print("[Delete] TARGET: people.id=\(person.id) name='\(name)'")
-        print("[Delete] isGiving=\(person.isGiving) isReceiving=\(person.isReceiving)")
-        print("[Delete] NOTE: people row will \(person.isGiving || person.isReceiving ? "NOT be deleted (has gift FK references)" : "be deleted")")
-        print("[Delete] auth.uid=\(supabase.auth.currentUser?.id.uuidString ?? "NIL") session=\(supabase.auth.currentSession != nil ? "EXISTS" : "NIL")")
+        debugLog("[Delete] TARGET: people.id=\(person.id) name='\(name)'")
+        debugLog("[Delete] isGiving=\(person.isGiving) isReceiving=\(person.isReceiving)")
+        debugLog("[Delete] NOTE: people row will \(person.isGiving || person.isReceiving ? "NOT be deleted (has gift FK references)" : "be deleted")")
+        debugLog("[Delete] auth.uid=\(supabase.auth.currentUser?.id.uuidString ?? "NIL") session=\(supabase.auth.currentSession != nil ? "EXISTS" : "NIL")")
         // ──────────────────────────────────────────────────────────────────────
 
         do {
@@ -549,7 +549,7 @@ struct PersonDetailView: View {
                 .eq("owner_id", value: ownerId.uuidString)
                 .eq("person_id", value: person.id.uuidString)
                 .execute()
-            print("[Delete] occasions deleted OK")
+            debugLog("[Delete] occasions deleted OK")
 
             try await supabase
                 .from("person_overrides")
@@ -557,7 +557,7 @@ struct PersonDetailView: View {
                 .eq("owner_id", value: ownerId.uuidString)
                 .eq("person_id", value: person.id.uuidString)
                 .execute()
-            print("[Delete] person_overrides deleted OK")
+            debugLog("[Delete] person_overrides deleted OK")
 
             // Only delete the people row for standalone contacts (no gift relationships).
             // People tied to gifts are left in the people table; their override/occasions are removed above.
@@ -567,23 +567,23 @@ struct PersonDetailView: View {
                     .delete()
                     .eq("id", value: person.id.uuidString)
                     .execute()
-                print("[Delete] people row deleted OK")
+                debugLog("[Delete] people row deleted OK")
 
                 // Verify the row is actually gone
                 struct IdRow: Decodable { let id: UUID }
                 let check: [IdRow] = (try? await supabase.from("people").select("id").eq("id", value: person.id.uuidString).limit(1).execute().value) ?? []
-                print("[Delete] DB verification: people row still exists=\(!check.isEmpty) ← should be false")
+                debugLog("[Delete] DB verification: people row still exists=\(!check.isEmpty) ← should be false")
             } else {
-                print("[Delete] people row SKIPPED (isGiving=\(person.isGiving) isReceiving=\(person.isReceiving)) — row kept for gift FK integrity")
+                debugLog("[Delete] people row SKIPPED (isGiving=\(person.isGiving) isReceiving=\(person.isReceiving)) — row kept for gift FK integrity")
             }
 
-            print("[Delete] calling dismiss() — PeopleView list will NOT auto-refresh (needs onAppear to re-fire or explicit callback)")
+            debugLog("[Delete] calling dismiss() — PeopleView list will NOT auto-refresh (needs onAppear to re-fire or explicit callback)")
             dismiss()
 
         } catch {
-            print("[Delete] FAILED: \(error)")
+            debugLog("[Delete] FAILED: \(error)")
             if let pgErr = error as? PostgrestError {
-                print("[Delete] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message) detail=\(pgErr.detail ?? "nil") hint=\(pgErr.hint ?? "nil")")
+                debugLog("[Delete] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message) detail=\(pgErr.detail ?? "nil") hint=\(pgErr.hint ?? "nil")")
             }
             isDeleting = false
         }

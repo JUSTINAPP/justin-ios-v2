@@ -72,10 +72,10 @@ final class ShelfViewModel: ObservableObject {
                 blocksByAuthor[b.blockedId] = blockedAt
             }
             if !blocksByAuthor.isEmpty {
-                print("[Shelf] \(blocksByAuthor.count) blocked author(s) — future-only filter active")
+                debugLog("[Shelf] \(blocksByAuthor.count) blocked author(s) — future-only filter active")
             }
         } catch {
-            print("[Shelf] blocks fetch skipped (non-fatal): \(error)")
+            debugLog("[Shelf] blocks fetch skipped (non-fatal): \(error)")
         }
 
         do {
@@ -101,14 +101,14 @@ final class ShelfViewModel: ObservableObject {
                     }
                     let giftDate = gift.createdAt ?? Date.distantPast
                     let keep     = giftDate <= blockedAt
-                    print("[Shelf] gift \(gift.id) | author blocked @ \(blockedAt) | gift created @ \(giftDate) → \(keep ? "KEEP" : "HIDE")")
+                    debugLog("[Shelf] gift \(gift.id) | author blocked @ \(blockedAt) | gift created @ \(giftDate) → \(keep ? "KEEP" : "HIDE")")
                     return keep
                 }
             }
 
             guard !visibleGifts.isEmpty else {
                 sections = ShelfSections()
-                print("[Shelf] loaded 0 visible received messages")
+                debugLog("[Shelf] loaded 0 visible received messages")
                 return
             }
 
@@ -120,11 +120,11 @@ final class ShelfViewModel: ObservableObject {
                 .execute()
                 .value
 
-            print("[Shelf] loaded \(messages.count) received messages")
+            debugLog("[Shelf] loaded \(messages.count) received messages")
             sections = organize(messages: messages, gifts: visibleGifts)
 
         } catch {
-            print("[Shelf] fetch failed: \(error)")
+            debugLog("[Shelf] fetch failed: \(error)")
         }
     }
 

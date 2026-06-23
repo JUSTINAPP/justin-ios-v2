@@ -153,9 +153,9 @@ struct ReceivedGiftDetailView: View {
                 .execute()
                 .value
             messages = rows
-            print("[ReceivedGiftDetail] loaded \(rows.count) messages from \(fromName)")
+            debugLog("[ReceivedGiftDetail] loaded \(rows.count) messages from \(fromName)")
         } catch {
-            print("[ReceivedGiftDetail] fetch failed: \(error)")
+            debugLog("[ReceivedGiftDetail] fetch failed: \(error)")
         }
     }
 }

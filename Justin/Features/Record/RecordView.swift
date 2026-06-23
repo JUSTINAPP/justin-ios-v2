@@ -41,9 +41,9 @@ struct RecordFlowView: View {
                     case .invite:  InviteShareView(onDone: { dismiss() })
                     case .share:
                         let _ = {
-                            print("[ShareDebug] navigationDestination .share — model.savedShareToken at view-build time: \(model.savedShareToken ?? "nil")")
-                            print("[ShareDebug] navigationDestination .share — model.savedGiftId at view-build time: \(model.savedGiftId?.uuidString ?? "nil")")
-                            print("[ShareDebug] navigationDestination .share — SOURCE: RecordFlowView model (id: \(ObjectIdentifier(model)))")
+                            debugLog("[ShareDebug] navigationDestination .share — model.savedShareToken at view-build time: \(model.savedShareToken ?? "nil")")
+                            debugLog("[ShareDebug] navigationDestination .share — model.savedGiftId at view-build time: \(model.savedGiftId?.uuidString ?? "nil")")
+                            debugLog("[ShareDebug] navigationDestination .share — SOURCE: RecordFlowView model (id: \(ObjectIdentifier(model)))")
                         }()
                         GiftShareView(
                             recipientName: model.recipientName,
@@ -882,11 +882,11 @@ struct RecordStep5PreviewView: View {
 
     private func saveAndFinish() async {
         // Snapshot any pre-existing token to spot stale-model reuse
-        print("[ShareDebug] saveAndFinish — model.savedShareToken BEFORE save: \(model.savedShareToken ?? "nil")")
-        print("[ShareDebug] saveAndFinish — model.savedGiftId    BEFORE save: \(model.savedGiftId?.uuidString ?? "nil")")
+        debugLog("[ShareDebug] saveAndFinish — model.savedShareToken BEFORE save: \(model.savedShareToken ?? "nil")")
+        debugLog("[ShareDebug] saveAndFinish — model.savedGiftId    BEFORE save: \(model.savedGiftId?.uuidString ?? "nil")")
 
         guard let authorId = auth.currentPerson?.id else {
-            print("[ShareDebug] saveAndFinish — no authenticated person, navigating to .share with nil token")
+            debugLog("[ShareDebug] saveAndFinish — no authenticated person, navigating to .share with nil token")
             path.append(RecordStep.share)
             return
         }
@@ -895,26 +895,26 @@ struct RecordStep5PreviewView: View {
         do {
             let result = try await GiftSaveService().save(model: model, authorId: authorId)
 
-            print("[ShareDebug] saveAndFinish — GiftSaveService returned giftId: \(result.giftId?.uuidString ?? "nil"), shareToken: \(result.shareToken ?? "nil"), recipientIsVerified: \(result.recipientIsVerified)")
+            debugLog("[ShareDebug] saveAndFinish — GiftSaveService returned giftId: \(result.giftId?.uuidString ?? "nil"), shareToken: \(result.shareToken ?? "nil"), recipientIsVerified: \(result.recipientIsVerified)")
 
             model.savedGiftId     = result.giftId
             model.savedShareToken = result.shareToken
 
-            print("[ShareDebug] saveAndFinish — model.savedShareToken AFTER set: \(model.savedShareToken ?? "nil")")
+            debugLog("[ShareDebug] saveAndFinish — model.savedShareToken AFTER set: \(model.savedShareToken ?? "nil")")
 
             if result.recipientIsVerified {
                 // Recipient has the Justin app — message lands on their shelf in-app.
                 // No shareable link needed; skip the share screen.
-                print("[ShareDebug] recipient IS verified → onDone() (in-app delivery, no share screen)")
+                debugLog("[ShareDebug] recipient IS verified → onDone() (in-app delivery, no share screen)")
                 onDone()
             } else {
                 // Recipient doesn't have the app yet — show the share screen.
                 // SQL creates a fresh gift + token per message (see create_gift_with_message migration).
-                print("[ShareDebug] recipient NOT verified → navigating to .share")
+                debugLog("[ShareDebug] recipient NOT verified → navigating to .share")
                 path.append(RecordStep.share)
             }
         } catch {
-            print("[Save] gift save failed: \(error)")
+            debugLog("[Save] gift save failed: \(error)")
             saveError = "Couldn't upload your message. Please check your connection and try again."
         }
     }

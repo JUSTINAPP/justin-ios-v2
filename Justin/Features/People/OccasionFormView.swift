@@ -211,7 +211,7 @@ struct OccasionFormView: View {
         let dateString = Self.isoFmt.string(from: date)
         let remind     = reminderDays != nil
 
-        print("[Occasion] save type=\(selectedType.rawValue) label='\(label)' date=\(dateString) remind_days_before=\(reminderDays.map(String.init) ?? "nil") for person=\(personId)")
+        debugLog("[Occasion] save type=\(selectedType.rawValue) label='\(label)' date=\(dateString) remind_days_before=\(reminderDays.map(String.init) ?? "nil") for person=\(personId)")
 
         isSaving = true
         defer { isSaving = false }
@@ -263,20 +263,20 @@ struct OccasionFormView: View {
                     .update(payload)
                     .eq("id", value: occ.id.uuidString)
                     .execute()
-                print("[Occasion] updated id=\(occ.id)")
+                debugLog("[Occasion] updated id=\(occ.id)")
             } else {
                 try await supabase
                     .from("occasions")
                     .insert(payload)
                     .execute()
-                print("[Occasion] inserted for person=\(personId)")
+                debugLog("[Occasion] inserted for person=\(personId)")
             }
             onSaved()
             dismiss()
         } catch {
-            print("[Occasion] save failed: \(error)")
+            debugLog("[Occasion] save failed: \(error)")
             if let pgErr = error as? PostgrestError {
-                print("[Occasion] PostgrestError: \(pgErr.message)")
+                debugLog("[Occasion] PostgrestError: \(pgErr.message)")
             }
             saveError = "Couldn't save. Please try again."
             showSaveError = true
@@ -287,7 +287,7 @@ struct OccasionFormView: View {
 
     private func deleteOccasion() async {
         guard let occ = existing else { return }
-        print("[Occasion] deleting id=\(occ.id)")
+        debugLog("[Occasion] deleting id=\(occ.id)")
         isDeleting = true
         defer { isDeleting = false }
         do {
@@ -296,11 +296,11 @@ struct OccasionFormView: View {
                 .delete()
                 .eq("id", value: occ.id.uuidString)
                 .execute()
-            print("[Occasion] deleted id=\(occ.id)")
+            debugLog("[Occasion] deleted id=\(occ.id)")
             onDeleted()
             dismiss()
         } catch {
-            print("[Occasion] delete failed: \(error)")
+            debugLog("[Occasion] delete failed: \(error)")
             saveError = "Couldn't delete. Please try again."
             showSaveError = true
         }

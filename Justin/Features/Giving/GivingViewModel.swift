@@ -19,7 +19,7 @@ final class GivingViewModel: ObservableObject {
                 .order("created_at", ascending: false)
                 .execute()
                 .value
-            print("[Giving] loaded \(giftRows.count) gifts")
+            debugLog("[Giving] loaded \(giftRows.count) gifts")
 
             if giftRows.isEmpty { recipients = []; return }
 
@@ -73,7 +73,7 @@ final class GivingViewModel: ObservableObject {
                         if let label = o.customLabel, !label.isEmpty { overrideNames[o.personId] = label }
                     }
                 } catch {
-                    print("[Giving] overrides failed (non-fatal): \(error)")
+                    debugLog("[Giving] overrides failed (non-fatal): \(error)")
                 }
             }
 
@@ -90,10 +90,10 @@ final class GivingViewModel: ObservableObject {
                 ($1.items.first?.message.createdAt ?? .distantPast)
             }
 
-            print("[Giving] \(recipients.count) recipient(s), \(messages.count) total message(s)")
+            debugLog("[Giving] \(recipients.count) recipient(s), \(messages.count) total message(s)")
 
         } catch {
-            print("[Giving] fetch failed: \(error)")
+            debugLog("[Giving] fetch failed: \(error)")
         }
     }
 

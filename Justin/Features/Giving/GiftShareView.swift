@@ -76,14 +76,14 @@ struct GiftShareView: View {
             }
         }
         .onAppear {
-            print("[ShareDebug] GiftShareView.onAppear")
-            print("[ShareDebug]   shareToken received: \(shareToken ?? "nil")")
-            print("[ShareDebug]   recipientName:       \(recipientName)")
-            print("[ShareDebug]   linkString:          \(linkString)")
+            debugLog("[ShareDebug] GiftShareView.onAppear")
+            debugLog("[ShareDebug]   shareToken received: \(shareToken ?? "nil")")
+            debugLog("[ShareDebug]   recipientName:       \(recipientName)")
+            debugLog("[ShareDebug]   linkString:          \(linkString)")
             composeMessageIfNeeded()
         }
         .onChange(of: shareToken) { oldToken, newToken in
-            print("[ShareDebug] GiftShareView.onChange(shareToken): \(oldToken ?? "nil") → \(newToken ?? "nil")")
+            debugLog("[ShareDebug] GiftShareView.onChange(shareToken): \(oldToken ?? "nil") → \(newToken ?? "nil")")
         }
         .onChange(of: shareToken) { _, newToken in
             guard let token = newToken else { return }

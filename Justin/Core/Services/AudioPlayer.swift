@@ -22,23 +22,23 @@ final class AudioPlayer: NSObject, ObservableObject {
             player?.prepareToPlay()
             duration = player?.duration ?? 0
         } catch {
-            print("[AudioPlayer] load failed: \(error)")
+            debugLog("[AudioPlayer] load failed: \(error)")
         }
     }
 
     /// Download audio from a remote signed URL, then load from the downloaded Data.
     /// AVAudioPlayer cannot play from a remote URL directly — it needs local data.
     func loadRemote(_ url: URL) async {
-        print("[AudioPlayer] downloading from signed URL")
+        debugLog("[AudioPlayer] downloading from signed URL")
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
-            print("[AudioPlayer] downloaded \(data.count) bytes")
+            debugLog("[AudioPlayer] downloaded \(data.count) bytes")
             try configureSession()
             player = try AVAudioPlayer(data: data)
             player?.prepareToPlay()
             duration = player?.duration ?? 0
         } catch {
-            print("[AudioPlayer] failed: \(error)")
+            debugLog("[AudioPlayer] failed: \(error)")
         }
     }
 
@@ -52,7 +52,7 @@ final class AudioPlayer: NSObject, ObservableObject {
             didFinishPlaying = false
             p.play()
             isPlaying = true
-            print("[AudioPlayer] playing")
+            debugLog("[AudioPlayer] playing")
             startProgressTimer()
         }
     }

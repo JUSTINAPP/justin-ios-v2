@@ -80,22 +80,22 @@ struct BlockedPeopleView: View {
                 .execute()
                 .value
             blocked = rows
-            print("[Blocked] loaded \(rows.count) blocked people")
+            debugLog("[Blocked] loaded \(rows.count) blocked people")
         } catch {
-            print("[Blocked] load failed: \(error)")
+            debugLog("[Blocked] load failed: \(error)")
         }
     }
 
     private func unblock(_ entry: BlockedEntry) async {
-        print("[Block] unblocking: \(entry.displayName) (\(entry.id))")
+        debugLog("[Block] unblocking: \(entry.displayName) (\(entry.id))")
         do {
             try await supabase
                 .rpc("unblock_person", params: BlockParams(pBlockedId: entry.id))
                 .execute()
             blocked.removeAll { $0.id == entry.id }
-            print("[Block] unblocked: \(entry.id)")
+            debugLog("[Block] unblocked: \(entry.id)")
         } catch {
-            print("[Block] unblock failed: \(error)")
+            debugLog("[Block] unblock failed: \(error)")
         }
     }
 

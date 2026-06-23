@@ -77,7 +77,7 @@ func fetchGiftOpenNotifications(forAuthorId authorId: UUID) async -> [GiftOpenNo
             .execute()
             .value
     } catch {
-        print("[OpenNotif] gift fetch failed: \(error)")
+        debugLog("[OpenNotif] gift fetch failed: \(error)")
         return []
     }
     if giftRows.isEmpty { return [] }
@@ -118,7 +118,7 @@ func fetchGiftOpenNotifications(forAuthorId authorId: UUID) async -> [GiftOpenNo
             .execute()
             .value
     } catch {
-        print("[OpenNotif] message fetch failed: \(error)")
+        debugLog("[OpenNotif] message fetch failed: \(error)")
         return []
     }
 
@@ -144,8 +144,8 @@ func markGiftOpenNotified(messageId: UUID) async {
             .update(["author_notified_opened": true])
             .eq("id", value: messageId.uuidString)
             .execute()
-        print("[OpenNotif] marked \(messageId) as author_notified_opened")
+        debugLog("[OpenNotif] marked \(messageId) as author_notified_opened")
     } catch {
-        print("[OpenNotif] mark notified failed (non-fatal): \(error)")
+        debugLog("[OpenNotif] mark notified failed (non-fatal): \(error)")
     }
 }

@@ -140,16 +140,16 @@ struct AccountView: View {
 
     private func saveDisplayName() async {
         guard let userId = auth.currentPerson?.id else {
-            print("[Account] ABORT: no currentPerson — not signed in")
+            debugLog("[Account] ABORT: no currentPerson — not signed in")
             return
         }
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            print("[Account] ABORT: name is empty")
+            debugLog("[Account] ABORT: name is empty")
             return
         }
 
-        print("[Account] saving own display_name='\(trimmed)' for id=\(userId)")
+        debugLog("[Account] saving own display_name='\(trimmed)' for id=\(userId)")
         isSaving = true
         defer { isSaving = false }
 
@@ -164,20 +164,20 @@ struct AccountView: View {
                 .eq("id", value: userId.uuidString)
                 .execute()
 
-            print("[Account] display_name saved OK → '\(trimmed)'")
+            debugLog("[Account] display_name saved OK → '\(trimmed)'")
             savedName = trimmed                  // clears dirty state → disables Save button
             await auth.refreshCurrentPerson()   // updates Profile header and everywhere else
         } catch {
-            print("[Account] save FAILED: \(error)")
+            debugLog("[Account] save FAILED: \(error)")
             if let pgErr = error as? PostgrestError {
-                print("[Account] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+                debugLog("[Account] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
             }
         }
     }
     // MARK: - Delete account
 
     private func deleteAccount() async {
-        print("[DeleteAccount] calling delete_my_account_data")
+        debugLog("[DeleteAccount] calling delete_my_account_data")
         isDeletingAccount = true
         // No defer reset — we sign out on success (view goes away) or reset on failure.
 
@@ -186,13 +186,13 @@ struct AccountView: View {
             try await supabase
                 .rpc("delete_my_account_data", params: NoParams())
                 .execute()
-            print("[DeleteAccount] RPC succeeded — signing out")
+            debugLog("[DeleteAccount] RPC succeeded — signing out")
             await auth.signOut()
             // auth.signOut() transitions state to .signedOut, unwinding to the welcome screen.
         } catch {
-            print("[DeleteAccount] RPC failed: \(error)")
+            debugLog("[DeleteAccount] RPC failed: \(error)")
             if let pgErr = error as? PostgrestError {
-                print("[DeleteAccount] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
+                debugLog("[DeleteAccount] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
             }
             isDeletingAccount = false
             deleteError = "Couldn't delete your account right now. Please try again or contact support."

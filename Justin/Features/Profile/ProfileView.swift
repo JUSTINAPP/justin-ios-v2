@@ -124,16 +124,16 @@ struct ProfileView: View {
 
     private func uploadAvatar(_ item: PhotosPickerItem) async {
         guard let currentId = auth.currentPerson?.id else {
-            print("[Profile] FAILED — no currentPerson id")
+            debugLog("[Profile] FAILED — no currentPerson id")
             return
         }
         guard let rawData = try? await item.loadTransferable(type: Data.self),
               let uiImage = UIImage(data: rawData),
               let jpegData = compressedAvatarData(from: uiImage) else {
-            print("[Profile] FAILED — could not load/compress image data")
+            debugLog("[Profile] FAILED — could not load/compress image data")
             return
         }
-        print("[Profile] image: \(rawData.count / 1024) KB raw → \(jpegData.count / 1024) KB compressed")
+        debugLog("[Profile] image: \(rawData.count / 1024) KB raw → \(jpegData.count / 1024) KB compressed")
 
         isSavingAvatar = true
         defer { isSavingAvatar = false }
@@ -141,22 +141,22 @@ struct ProfileView: View {
         let uploadId = UUID().uuidString
         let path = "avatars/\(currentId)/\(uploadId).jpg"
 
-        print("[Profile] WRITE — uploading to photos/\(path)  size=\(jpegData.count) bytes")
-        print("[Profile] READ  ← people.avatar_url (display reads auth.currentPerson?.avatarUrl)")
+        debugLog("[Profile] WRITE — uploading to photos/\(path)  size=\(jpegData.count) bytes")
+        debugLog("[Profile] READ  ← people.avatar_url (display reads auth.currentPerson?.avatarUrl)")
 
         do {
             try await supabase.storage
                 .from("photos")
                 .upload(path, data: jpegData,
                         options: FileOptions(contentType: "image/jpeg", upsert: false))
-            print("[Profile] storage upload succeeded")
+            debugLog("[Profile] storage upload succeeded")
 
             try await supabase
                 .from("people")
                 .update(["avatar_url": path])
                 .eq("id", value: currentId.uuidString)
                 .execute()
-            print("[Profile] WRITE → people.avatar_url = \(path) (UPDATE succeeded)")
+            debugLog("[Profile] WRITE → people.avatar_url = \(path) (UPDATE succeeded)")
 
             // Show new image immediately via local data, and update the signed URL so
             // re-appears (when avatarData resets) also show the new photo.
@@ -164,12 +164,12 @@ struct ProfileView: View {
             avatarSignedURL = try? await supabase.storage
                 .from("photos")
                 .createSignedURL(path: path, expiresIn: 3600)
-            print("[Profile] avatarSignedURL refreshed to: \(avatarSignedURL?.absoluteString ?? "nil")")
+            debugLog("[Profile] avatarSignedURL refreshed to: \(avatarSignedURL?.absoluteString ?? "nil")")
 
             await auth.refreshCurrentPerson()
-            print("[Profile] auth.currentPerson refreshed — avatar_url: \(auth.currentPerson?.avatarUrl ?? "nil")")
+            debugLog("[Profile] auth.currentPerson refreshed — avatar_url: \(auth.currentPerson?.avatarUrl ?? "nil")")
         } catch {
-            print("[Profile] FAILED — error: \(error)")
+            debugLog("[Profile] FAILED — error: \(error)")
         }
     }
 }

@@ -30,7 +30,7 @@ final class GiftSaveService {
                 .from("voice")
                 .upload(path, data: voiceData, options: FileOptions(contentType: "audio/x-m4a"))
             voicePath = path
-            print("[Upload] voice uploaded: \(path)")
+            debugLog("[Upload] voice uploaded: \(path)")
         }
 
         // Upload photos — optional; continue on individual failures.
@@ -40,12 +40,12 @@ final class GiftSaveService {
         var photoPaths: [String] = []
         for (i, image) in model.selectedImages.enumerated() {
             guard let jpegData = compressedAvatarData(from: image, maxDimension: 1400, quality: 0.75) else {
-                print("[GiftPhoto] \(i): compression failed, skipping")
+                debugLog("[GiftPhoto] \(i): compression failed, skipping")
                 continue
             }
             let pixelW = Int(image.size.width * image.scale)
             let pixelH = Int(image.size.height * image.scale)
-            print("[GiftPhoto] \(i): \(pixelW)×\(pixelH)px → \(jpegData.count / 1024) KB")
+            debugLog("[GiftPhoto] \(i): \(pixelW)×\(pixelH)px → \(jpegData.count / 1024) KB")
             let path = "\(uploadId)_\(i).jpg"
             do {
                 try await supabase.storage
@@ -53,10 +53,10 @@ final class GiftSaveService {
                     .upload(path, data: jpegData, options: FileOptions(contentType: "image/jpeg"))
                 photoPaths.append(path)
             } catch {
-                print("[Upload] photo \(i) upload failed: \(error)")
+                debugLog("[Upload] photo \(i) upload failed: \(error)")
             }
         }
-        print("[Upload] photos uploaded: \(photoPaths.count)")
+        debugLog("[Upload] photos uploaded: \(photoPaths.count)")
 
         // ── Check recipient verification status ──────────────────────────────
         // Determines UX (share screen vs. in-app delivery) and controls whether
@@ -75,9 +75,9 @@ final class GiftSaveService {
                 .execute()
                 .value) ?? []
             recipientIsVerified = rows.first?.isVerified ?? false
-            print("[Save] recipient \(recipientId) — is_verified: \(recipientIsVerified)")
+            debugLog("[Save] recipient \(recipientId) — is_verified: \(recipientIsVerified)")
         } else {
-            print("[Save] recipient has no personId yet — treating as non-verified (new person)")
+            debugLog("[Save] recipient has no personId yet — treating as non-verified (new person)")
         }
 
         let params = CreateGiftParams(
@@ -92,14 +92,14 @@ final class GiftSaveService {
             pPhotoUrls: photoPaths
         )
 
-        print("[Save] recipient resolved as: name=\(params.pRecipientName), id=\(params.pRecipientId?.uuidString ?? "new")")
+        debugLog("[Save] recipient resolved as: name=\(params.pRecipientName), id=\(params.pRecipientId?.uuidString ?? "new")")
 
         let debugEncoder = JSONEncoder()
         debugEncoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         debugEncoder.dateEncodingStrategy = .iso8601
         if let data = try? debugEncoder.encode(params),
            let json = String(data: data, encoding: .utf8) {
-            print("[Save] create_gift_with_message params:\n\(json)")
+            debugLog("[Save] create_gift_with_message params:\n\(json)")
         }
 
         do {
@@ -107,7 +107,7 @@ final class GiftSaveService {
                 .rpc("create_gift_with_message", params: params)
                 .execute()
                 .value
-            print("[Save] gift+message saved, message id: \(messageId)")
+            debugLog("[Save] gift+message saved, message id: \(messageId)")
 
             // Caption lives in the messages.caption column; persist it after the RPC.
             let trimmedCaption = model.messageCaption.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -117,7 +117,7 @@ final class GiftSaveService {
                     .update(["caption": trimmedCaption])
                     .eq("id", value: messageId.uuidString)
                     .execute()
-                print("[Save] caption saved")
+                debugLog("[Save] caption saved")
             }
 
             // Fetch the gift's id and share_token via the message FK — non-fatal.
@@ -135,24 +135,24 @@ final class GiftSaveService {
                 shareToken = rows.first?.gifts.shareToken
                 // These two lines are the key diagnostic: on a second message to the
                 // same non-verified recipient they should differ from the first save.
-                print("[Save] ── gift/token for this message ──────────────────────────")
-                print("[Save] messageId:   \(messageId)")
-                print("[Save] giftId:      \(giftId?.uuidString ?? "nil")")
-                print("[Save] shareToken:  \(shareToken ?? "nil")")
-                print("[Save] isVerified:  \(recipientIsVerified)")
-                print("[Save] ────────────────────────────────────────────────────────")
+                debugLog("[Save] ── gift/token for this message ──────────────────────────")
+                debugLog("[Save] messageId:   \(messageId)")
+                debugLog("[Save] giftId:      \(giftId?.uuidString ?? "nil")")
+                debugLog("[Save] shareToken:  \(shareToken ?? "nil")")
+                debugLog("[Save] isVerified:  \(recipientIsVerified)")
+                debugLog("[Save] ────────────────────────────────────────────────────────")
             } catch {
-                print("[Save] share_token fetch failed (migration needed?): \(error)")
+                debugLog("[Save] share_token fetch failed (migration needed?): \(error)")
             }
 
             return GiftSaveResult(giftId: giftId, shareToken: shareToken, recipientIsVerified: recipientIsVerified)
 
         } catch {
-            print("[Save] gift save failed: \(error)")
-            print("[Save] localizedDescription: \(error.localizedDescription)")
+            debugLog("[Save] gift save failed: \(error)")
+            debugLog("[Save] localizedDescription: \(error.localizedDescription)")
             if let pgErr = error as? PostgrestError {
-                print("[Save] PostgrestError — code: \(pgErr.code ?? "nil"), message: \(pgErr.message)")
-                print("[Save] PostgrestError — detail: \(pgErr.detail ?? "nil"), hint: \(pgErr.hint ?? "nil")")
+                debugLog("[Save] PostgrestError — code: \(pgErr.code ?? "nil"), message: \(pgErr.message)")
+                debugLog("[Save] PostgrestError — detail: \(pgErr.detail ?? "nil"), hint: \(pgErr.hint ?? "nil")")
             }
             throw error
         }

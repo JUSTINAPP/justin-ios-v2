@@ -113,7 +113,7 @@ struct AddPersonView: View {
                 guard let rawData = try? await item?.loadTransferable(type: Data.self),
                       let uiImage = UIImage(data: rawData),
                       let compressed = compressedAvatarData(from: uiImage) else { return }
-                print("[AddPerson] avatar: \(rawData.count / 1024) KB raw → \(compressed.count / 1024) KB compressed")
+                debugLog("[AddPerson] avatar: \(rawData.count / 1024) KB raw → \(compressed.count / 1024) KB compressed")
                 avatarImageData = compressed
             }
         }
@@ -345,10 +345,10 @@ struct AddPersonView: View {
                 phone = p.phone ?? ""
                 // Verified people have a real account — their phone is identity-locked.
                 isVerifiedPerson = p.authId != nil
-                print("[Edit] person \(pid): isVerified=\(isVerifiedPerson) phone=\(phone.isEmpty ? "nil" : "set")")
+                debugLog("[Edit] person \(pid): isVerified=\(isVerifiedPerson) phone=\(phone.isEmpty ? "nil" : "set")")
             }
         } catch {
-            print("[AddPerson] load people row skipped: \(error)")
+            debugLog("[AddPerson] load people row skipped: \(error)")
         }
 
         do {
@@ -386,7 +386,7 @@ struct AddPersonView: View {
                 }
             }
         } catch {
-            print("[AddPerson] load overrides skipped: \(error)")
+            debugLog("[AddPerson] load overrides skipped: \(error)")
         }
 
         do {
@@ -406,30 +406,30 @@ struct AddPersonView: View {
                 return DraftOccasion(label: row.label, date: date)
             }
         } catch {
-            print("[AddPerson] load occasions skipped: \(error)")
+            debugLog("[AddPerson] load occasions skipped: \(error)")
         }
     }
 
     // MARK: - Save
 
     private func save() async {
-        print("======= [AddPerson] SAVE BEGIN isEditing=\(isEditing) personId=\(String(describing: personId)) =======")
+        debugLog("======= [AddPerson] SAVE BEGIN isEditing=\(isEditing) personId=\(String(describing: personId)) =======")
         // PhotosPicker loads data asynchronously; ensure it's ready before we enter create/update.
         if let item = avatarPickerItem, avatarImageData == nil {
             avatarImageData = try? await item.loadTransferable(type: Data.self)
         }
         if isEditing { await update() } else { await create() }
-        print("======= [AddPerson] SAVE END =======")
+        debugLog("======= [AddPerson] SAVE END =======")
     }
 
     private func create() async {
-        print("======= [AddPerson] CREATE BEGIN =======")
+        debugLog("======= [AddPerson] CREATE BEGIN =======")
 
         // Log auth state first — nil here is the most common silent failure.
         if let p = auth.currentPerson {
-            print("======= [AddPerson] owner id: \(p.id) phone: \(p.phone ?? "nil") =======")
+            debugLog("======= [AddPerson] owner id: \(p.id) phone: \(p.phone ?? "nil") =======")
         } else {
-            print("======= [AddPerson] owner id: NIL — auth.currentPerson is nil! =======")
+            debugLog("======= [AddPerson] owner id: NIL — auth.currentPerson is nil! =======")
         }
 
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
@@ -438,18 +438,18 @@ struct AddPersonView: View {
         let rawPhone    = phone.isEmpty ? nil : phone
         let cleanPhone: String? = rawPhone.map { normaliseToE164($0) }
         if let r = rawPhone, let c = cleanPhone, r != c {
-            print("======= [AddPerson] phone normalised: '\(r)' → '\(c)' =======")
+            debugLog("======= [AddPerson] phone normalised: '\(r)' → '\(c)' =======")
         }
-        print("======= [AddPerson] data: name='\(trimmedName)' phone=\(cleanPhone ?? "nil") occasions=\(occasions.count) =======")
+        debugLog("======= [AddPerson] data: name='\(trimmedName)' phone=\(cleanPhone ?? "nil") occasions=\(occasions.count) =======")
 
         guard !trimmedName.isEmpty else {
-            print("======= [AddPerson] ABORT: name is empty =======")
+            debugLog("======= [AddPerson] ABORT: name is empty =======")
             saveError = "Name is required."
             showSaveError = true
             return
         }
         guard let owner = auth.currentPerson else {
-            print("======= [AddPerson] ABORT: auth.currentPerson is NIL — cannot save =======")
+            debugLog("======= [AddPerson] ABORT: auth.currentPerson is NIL — cannot save =======")
             saveError = "You're not signed in. Please restart the app and sign in again."
             showSaveError = true
             return
@@ -462,7 +462,7 @@ struct AddPersonView: View {
         // All steps in one do/catch so nothing escapes unlogged.
         do {
             // Step 1 — find or create person row
-            print("======= [AddPerson] step 1: people row ownerId=\(owner.id) =======")
+            debugLog("======= [AddPerson] step 1: people row ownerId=\(owner.id) =======")
             var resolvedId: UUID
 
             if let ph = cleanPhone {
@@ -479,7 +479,7 @@ struct AddPersonView: View {
                         case pDisplayName = "p_display_name"
                     }
                 }
-                print("======= [AddPerson] step 1: calling find_or_create_person_by_phone phone=\(ph) =======")
+                debugLog("======= [AddPerson] step 1: calling find_or_create_person_by_phone phone=\(ph) =======")
                 let personId: UUID = try await supabase
                     .rpc("find_or_create_person_by_phone", params: FindOrCreateParams(
                         pPhone: ph,
@@ -488,56 +488,56 @@ struct AddPersonView: View {
                     .execute()
                     .value
                 resolvedId = personId
-                print("[AddPerson] find_or_create returned id=\(personId) (existing or new)")
+                debugLog("[AddPerson] find_or_create returned id=\(personId) (existing or new)")
             } else {
                 let newId = UUID()
-                print("======= [AddPerson] step 1: inserting new person (no phone) id=\(newId) =======")
+                debugLog("======= [AddPerson] step 1: inserting new person (no phone) id=\(newId) =======")
                 try await supabase
                     .from("people")
                     .insert(PendingPersonInsert(id: newId, displayName: trimmedName, phone: nil))
                     .execute()
                 resolvedId = newId
-                print("======= [AddPerson] created new person (no phone) id=\(newId) =======")
+                debugLog("======= [AddPerson] created new person (no phone) id=\(newId) =======")
             }
-            print("======= [AddPerson] step 1 OK resolvedId=\(resolvedId) =======")
+            debugLog("======= [AddPerson] step 1 OK resolvedId=\(resolvedId) =======")
 
             // ── Auth state at write time ─────────────────────────────────────
             // Log before any write so we can see whether auth.uid() will be null
             // server-side (which causes 403 on storage and 42501 on RLS writes).
             let _authSession = supabase.auth.currentSession
-            print("[AuthDebug create] ── session at write time ──────────────────")
-            print("[AuthDebug create] currentSession: \(_authSession != nil ? "EXISTS" : "NIL ← auth.uid() will be NULL server-side")")
+            debugLog("[AuthDebug create] ── session at write time ──────────────────")
+            debugLog("[AuthDebug create] currentSession: \(_authSession != nil ? "EXISTS" : "NIL ← auth.uid() will be NULL server-side")")
             if let s = _authSession {
-                print("[AuthDebug create] session.user.id:   \(s.user.id)")
-                print("[AuthDebug create] accessToken prefix: \(s.accessToken.prefix(24))…")
-                print("[AuthDebug create] isExpired:          \(s.isExpired)")
-                print("[AuthDebug create] expiresAt (unix):   \(s.expiresAt)  now: \(Date().timeIntervalSince1970)")
+                debugLog("[AuthDebug create] session.user.id:   \(s.user.id)")
+                debugLog("[AuthDebug create] accessToken prefix: \(s.accessToken.prefix(24))…")
+                debugLog("[AuthDebug create] isExpired:          \(s.isExpired)")
+                debugLog("[AuthDebug create] expiresAt (unix):   \(s.expiresAt)  now: \(Date().timeIntervalSince1970)")
             }
-            print("[AuthDebug create] currentUser?.id:    \(supabase.auth.currentUser?.id.uuidString ?? "NIL")")
-            print("[AuthDebug create] auth.currentPerson: \(auth.currentPerson?.id.uuidString ?? "NIL")")
-            print("[AuthDebug create] AuthService.state:  \(auth.state)")
-            print("[AuthDebug create] ─────────────────────────────────────────────")
+            debugLog("[AuthDebug create] currentUser?.id:    \(supabase.auth.currentUser?.id.uuidString ?? "NIL")")
+            debugLog("[AuthDebug create] auth.currentPerson: \(auth.currentPerson?.id.uuidString ?? "NIL")")
+            debugLog("[AuthDebug create] AuthService.state:  \(auth.state)")
+            debugLog("[AuthDebug create] ─────────────────────────────────────────────")
             // ────────────────────────────────────────────────────────────────────
 
             // Avatar upload (non-fatal)
             var avatarPath: String? = nil
             if let data = avatarImageData {
                 let path = "avatars/\(owner.id)/\(resolvedId).jpg"
-                print("======= [AddPerson] avatar: uploading to \(path) =======")
+                debugLog("======= [AddPerson] avatar: uploading to \(path) =======")
                 do {
                     try await supabase.storage
                         .from("photos")
                         .upload(path, data: data,
                                 options: FileOptions(contentType: "image/jpeg", upsert: true))
                     avatarPath = path
-                    print("======= [AddPerson] avatar OK =======")
+                    debugLog("======= [AddPerson] avatar OK =======")
                 } catch {
-                    print("======= [AddPerson] avatar upload skipped: \(error) =======")
+                    debugLog("======= [AddPerson] avatar upload skipped: \(error) =======")
                 }
             }
 
             // Step 2 — occasions
-            print("======= [AddPerson] step 2: occasions count=\(occasions.count) personId=\(resolvedId) =======")
+            debugLog("======= [AddPerson] step 2: occasions count=\(occasions.count) personId=\(resolvedId) =======")
             if !occasions.isEmpty {
                 let rows = occasions.map {
                     OccasionShape(ownerId: owner.id, personId: resolvedId,
@@ -545,10 +545,10 @@ struct AddPersonView: View {
                 }
                 try await supabase.from("occasions").insert(rows).execute()
             }
-            print("======= [AddPerson] step 2 OK =======")
+            debugLog("======= [AddPerson] step 2 OK =======")
 
             // Step 3 — person_overrides (stores the giver's private label and details)
-            print("======= [AddPerson] step 3: person_overrides ownerId=\(owner.id) personId=\(resolvedId) displayName='\(trimmedName)' =======")
+            debugLog("======= [AddPerson] step 3: person_overrides ownerId=\(owner.id) personId=\(resolvedId) displayName='\(trimmedName)' =======")
             try await supabase
                 .from("person_overrides")
                 .upsert(
@@ -562,21 +562,21 @@ struct AddPersonView: View {
                     onConflict: "owner_id,person_id"
                 )
                 .execute()
-            print("[AddPerson] override upsert OK")
-            print("======= [AddPerson] step 3 OK =======")
+            debugLog("[AddPerson] override upsert OK")
+            debugLog("======= [AddPerson] step 3 OK =======")
 
-            print("======= [AddPerson] ALL SAVED =======")
+            debugLog("======= [AddPerson] ALL SAVED =======")
             onSaved?(PeopleEntry(id: resolvedId, name: trimmedName))
             isPresented = false
 
         } catch {
             // Log every possible detail so nothing is hidden.
-            print("======= [AddPerson] SAVE ERROR: \(error) =======")
-            print("======= [AddPerson] String(describing:): \(String(describing: error)) =======")
-            print("======= [AddPerson] error type: \(type(of: error)) =======")
+            debugLog("======= [AddPerson] SAVE ERROR: \(error) =======")
+            debugLog("======= [AddPerson] String(describing:): \(String(describing: error)) =======")
+            debugLog("======= [AddPerson] error type: \(type(of: error)) =======")
             let mirror = Mirror(reflecting: error)
             for child in mirror.children {
-                print("======= [AddPerson] error.\(child.label ?? "_"): \(child.value) =======")
+                debugLog("======= [AddPerson] error.\(child.label ?? "_"): \(child.value) =======")
             }
             let msg = fmtError(error)
             saveError = msg
@@ -599,20 +599,20 @@ struct AddPersonView: View {
 
     private func update() async {
         guard let pid = personId else {
-            print("[Edit] ABORT: personId is nil")
+            debugLog("[Edit] ABORT: personId is nil")
             return
         }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else {
-            print("[Edit] ABORT: name is empty")
+            debugLog("[Edit] ABORT: name is empty")
             return
         }
         guard let owner = auth.currentPerson else {
-            print("[Edit] ABORT: auth.currentPerson is nil — not signed in")
+            debugLog("[Edit] ABORT: auth.currentPerson is nil — not signed in")
             return
         }
 
-        print("[Edit] update() — pid=\(pid) isVerified=\(isVerifiedPerson) customLabel='\(trimmedName)' relationship='\(relationship)' notes='\(notes.isEmpty ? "(empty)" : notes)'")
+        debugLog("[Edit] update() — pid=\(pid) isVerified=\(isVerifiedPerson) customLabel='\(trimmedName)' relationship='\(relationship)' notes='\(notes.isEmpty ? "(empty)" : notes)'")
 
         isSaving = true
         saveError = nil
@@ -621,7 +621,7 @@ struct AddPersonView: View {
         do {
             // Edit writes ONLY to person_overrides (my private label + notes + avatar).
             // people.display_name is the person's own identity — we must not touch it.
-            print("[Edit] saving custom_label='\(trimmedName)' to person_overrides for person \(pid)")
+            debugLog("[Edit] saving custom_label='\(trimmedName)' to person_overrides for person \(pid)")
 
             // Preserve existing avatar path unless a new photo was picked.
             var avatarPath: String? = existingAvatarStoragePath
@@ -647,7 +647,7 @@ struct AddPersonView: View {
                     onConflict: "owner_id,person_id"
                 )
                 .execute()
-            print("[Edit] person_overrides upsert OK")
+            debugLog("[Edit] person_overrides upsert OK")
 
             // Delete-then-reinsert keeps occasions clean with no stale or duplicate rows.
             try await supabase
@@ -665,15 +665,15 @@ struct AddPersonView: View {
                 try await supabase.from("occasions").insert(rows).execute()
             }
 
-            print("[AddPerson] saved and dismissing")
+            debugLog("[AddPerson] saved and dismissing")
             onSaved?(PeopleEntry(id: pid, name: trimmedName))
             isPresented = false
 
         } catch {
             let msg = fmtError(error)
-            print("[NameEdit] UPDATE FAILED: \(msg)")
+            debugLog("[NameEdit] UPDATE FAILED: \(msg)")
             if let pgErr = error as? PostgrestError {
-                print("[NameEdit] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message) detail=\(pgErr.detail ?? "nil") hint=\(pgErr.hint ?? "nil")")
+                debugLog("[NameEdit] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message) detail=\(pgErr.detail ?? "nil") hint=\(pgErr.hint ?? "nil")")
             }
             saveError = msg
             showSaveError = true

@@ -38,10 +38,10 @@ final class AuthService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         let normPhone = normaliseToE164(phone)
-        print("[Auth] sending OTP to: \(phone) → '\(normPhone)'")
+        debugLog("[Auth] sending OTP to: \(phone) → '\(normPhone)'")
         do {
             try await supabase.auth.signInWithOTP(phone: normPhone)
-            print("[Auth] sendOTP succeeded for \(normPhone)")
+            debugLog("[Auth] sendOTP succeeded for \(normPhone)")
             state = .awaitingCode(phone: normPhone)
         } catch {
             logAuthError("sendOTP", error)
@@ -54,17 +54,17 @@ final class AuthService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         let normPhone = normaliseToE164(phone)
-        print("[Auth] verifyOTP phone: \(phone) → '\(normPhone)'  code: \(code)")
+        debugLog("[Auth] verifyOTP phone: \(phone) → '\(normPhone)'  code: \(code)")
         do {
             let response = try await supabase.auth.verifyOTP(
                 phone: normPhone,
                 token: code,
                 type: .sms
             )
-            print("[Auth] verifyOTP succeeded — userId: \(response.user.id)")
-            print("[AuthCheck] current user id: \(String(describing: supabase.auth.currentUser?.id))")
-            print("[AuthCheck] current session exists: \(supabase.auth.currentSession != nil)")
-            print("[AuthCheck] access token present: \(supabase.auth.currentSession?.accessToken != nil)")
+            debugLog("[Auth] verifyOTP succeeded — userId: \(response.user.id)")
+            debugLog("[AuthCheck] current user id: \(String(describing: supabase.auth.currentUser?.id))")
+            debugLog("[AuthCheck] current session exists: \(supabase.auth.currentSession != nil)")
+            debugLog("[AuthCheck] access token present: \(supabase.auth.currentSession?.accessToken != nil)")
             await handleVerifiedUser(userId: response.user.id, phone: normPhone)
         } catch {
             logAuthError("verifyOTP", error)
@@ -74,15 +74,15 @@ final class AuthService: ObservableObject {
 
     func saveName(_ name: String) async {
         guard let userId = pendingUserId, let phone = pendingPhone else {
-            print("[Name] saveName called but pendingUserId=\(String(describing: pendingUserId)) pendingPhone=\(String(describing: pendingPhone))")
+            debugLog("[Name] saveName called but pendingUserId=\(String(describing: pendingUserId)) pendingPhone=\(String(describing: pendingPhone))")
             return
         }
         clearError()
         isLoading = true
         defer { isLoading = false }
-        print("[Name] saving name '\(name)' for user: \(String(describing: supabase.auth.currentUser?.id))")
-        print("[Name] pendingUserId: \(userId)  pendingPhone: \(phone)")
-        print("[Name] operation: claim_or_create_account RPC (upgrades placeholder or creates fresh)")
+        debugLog("[Name] saving name '\(name)' for user: \(String(describing: supabase.auth.currentUser?.id))")
+        debugLog("[Name] pendingUserId: \(userId)  pendingPhone: \(phone)")
+        debugLog("[Name] operation: claim_or_create_account RPC (upgrades placeholder or creates fresh)")
         do {
             // SECURITY DEFINER RPC — finds an existing placeholder row with this phone
             // and upgrades it to a real account (sets auth_id, is_verified, display_name),
@@ -97,12 +97,12 @@ final class AuthService: ObservableObject {
                     case pPhone       = "p_phone"
                 }
             }
-            print("[Name] calling claim_or_create_account displayName='\(name)' phone='\(phone)'")
+            debugLog("[Name] calling claim_or_create_account displayName='\(name)' phone='\(phone)'")
             let personId: UUID = try await supabase
                 .rpc("claim_or_create_account", params: ClaimParams(pDisplayName: name, pPhone: phone))
                 .execute()
                 .value
-            print("[Name] claim_or_create_account returned id=\(personId)")
+            debugLog("[Name] claim_or_create_account returned id=\(personId)")
 
             // Fetch the full Person row so currentPerson is populated correctly.
             let rows: [Person] = try await supabase
@@ -117,7 +117,7 @@ final class AuthService: ObservableObject {
                     NSLocalizedDescriptionKey: "Account created but couldn't load profile. Please restart the app."
                 ])
             }
-            print("[Name] save succeeded — person id: \(person.id) displayName: \(person.displayName ?? "nil")")
+            debugLog("[Name] save succeeded — person id: \(person.id) displayName: \(person.displayName ?? "nil")")
             currentPerson = person
             // Convergence before signedIn so the Shelf fetch sees re-pointed gifts immediately.
             await runConvergence(userId: userId, phone: phone)
@@ -127,13 +127,13 @@ final class AuthService: ObservableObject {
             // Prompt new users to claim a gift by code — they may have one from the web.
             showClaimCodePrompt = true
         } catch {
-            print("[Name] save failed: \(error)")
-            print("[Name] localizedDescription: \(error.localizedDescription)")
+            debugLog("[Name] save failed: \(error)")
+            debugLog("[Name] localizedDescription: \(error.localizedDescription)")
             if let pgErr = error as? PostgrestError {
-                print("[Name] PostgrestError — code: \(pgErr.code ?? "nil")")
-                print("[Name] PostgrestError — message: \(pgErr.message)")
-                print("[Name] PostgrestError — detail: \(pgErr.detail ?? "nil")")
-                print("[Name] PostgrestError — hint: \(pgErr.hint ?? "nil")")
+                debugLog("[Name] PostgrestError — code: \(pgErr.code ?? "nil")")
+                debugLog("[Name] PostgrestError — message: \(pgErr.message)")
+                debugLog("[Name] PostgrestError — detail: \(pgErr.detail ?? "nil")")
+                debugLog("[Name] PostgrestError — hint: \(pgErr.hint ?? "nil")")
             }
             errorMessage = "Couldn't save your name. Please try again."
         }
@@ -151,7 +151,7 @@ final class AuthService: ObservableObject {
                 .value
             if let person = rows.first { currentPerson = person }
         } catch {
-            print("[Auth] refreshCurrentPerson failed: \(error)")
+            debugLog("[Auth] refreshCurrentPerson failed: \(error)")
         }
     }
 
@@ -172,7 +172,7 @@ final class AuthService: ObservableObject {
             // Normalise to E.164 before storing as pendingPhone / passing to RPC.
             let rawPhone = session.user.phone ?? ""
             let phone    = normaliseToE164(rawPhone)
-            if !rawPhone.isEmpty { print("[Auth] restoreSession phone: '\(rawPhone)' → '\(phone)'") }
+            if !rawPhone.isEmpty { debugLog("[Auth] restoreSession phone: '\(rawPhone)' → '\(phone)'") }
             await handleVerifiedUser(userId: session.user.id, phone: phone)
         } catch {
             state = .signedOut
@@ -221,14 +221,14 @@ final class AuthService: ObservableObject {
                 .execute()
                 .value
             if count > 0 {
-                print("[Converge] \(count) gift(s) attached to user \(userId)")
+                debugLog("[Converge] \(count) gift(s) attached to user \(userId)")
                 pendingGiftsCount = count
             } else {
-                print("[Converge] no new gifts to attach")
+                debugLog("[Converge] no new gifts to attach")
             }
         } catch {
             // Non-fatal — log and continue. Convergence will retry on next login.
-            print("[Converge] RPC failed (non-fatal): \(error)")
+            debugLog("[Converge] RPC failed (non-fatal): \(error)")
         }
     }
 
@@ -242,17 +242,17 @@ final class AuthService: ObservableObject {
     }
 
     private func logAuthError(_ context: String, _ error: Error) {
-        print("[Auth] \(context) FAILED: \(error)")
-        print("[Auth] localizedDescription: \(error.localizedDescription)")
+        debugLog("[Auth] \(context) FAILED: \(error)")
+        debugLog("[Auth] localizedDescription: \(error.localizedDescription)")
         if let authError = error as? AuthError {
-            print("[Auth] AuthError.message: \(authError.message)")
-            print("[Auth] AuthError.errorCode: \(authError.errorCode.rawValue)")
+            debugLog("[Auth] AuthError.message: \(authError.message)")
+            debugLog("[Auth] AuthError.errorCode: \(authError.errorCode.rawValue)")
             if case .api(let message, let errorCode, let data, let response) = authError {
-                print("[Auth] API status: \(response.statusCode)")
-                print("[Auth] API errorCode: \(errorCode.rawValue)")
-                print("[Auth] API message: \(message)")
+                debugLog("[Auth] API status: \(response.statusCode)")
+                debugLog("[Auth] API errorCode: \(errorCode.rawValue)")
+                debugLog("[Auth] API message: \(message)")
                 if let body = String(data: data, encoding: .utf8) {
-                    print("[Auth] API response body: \(body)")
+                    debugLog("[Auth] API response body: \(body)")
                 }
             }
         }

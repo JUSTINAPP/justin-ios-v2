@@ -37,10 +37,10 @@ final class AvatarCache {
 func loadCachedAvatar(path: String) async -> UIImage? {
     let label = (path.split(separator: "/").last).map(String.init) ?? path
     if let hit = AvatarCache.shared.image(for: path) {
-        print("[AvatarCache] HIT  \(label)")
+        debugLog("[AvatarCache] HIT  \(label)")
         return hit
     }
-    print("[AvatarCache] MISS \(label) — fetching")
+    debugLog("[AvatarCache] MISS \(label) — fetching")
     do {
         let url = try await supabase.storage
             .from("photos")
@@ -48,10 +48,10 @@ func loadCachedAvatar(path: String) async -> UIImage? {
         let (data, _) = try await URLSession.shared.data(from: url)
         guard let image = UIImage(data: data) else { return nil }
         AvatarCache.shared.store(image, for: path)
-        print("[AvatarCache] stored \(label)  (\(data.count / 1024) KB)")
+        debugLog("[AvatarCache] stored \(label)  (\(data.count / 1024) KB)")
         return image
     } catch {
-        print("[AvatarCache] fetch failed for \(label): \(error)")
+        debugLog("[AvatarCache] fetch failed for \(label): \(error)")
         return nil
     }
 }
