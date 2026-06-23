@@ -11,7 +11,8 @@ private enum PeopleNavDest: Hashable {
 struct PeopleView: View {
     @EnvironmentObject var auth: AuthService
     @StateObject private var viewModel = PeopleViewModel()
-    @State private var showAddPerson = false
+    @State private var showAddPerson     = false
+    @State private var recordingForPerson: PeopleEntry? = nil
 
     var body: some View {
         Group {
@@ -21,6 +22,12 @@ struct PeopleView: View {
             } else if !viewModel.people.isEmpty {
                 ScrollView {
                     VStack(spacing: 10) {
+                        // ── Coming up strip ──────────────────────────────────
+                        if !viewModel.upcomingOccasions.isEmpty {
+                            comingUpStrip
+                                .padding(.bottom, 6)
+                        }
+
                         Text("People")
                             .font(.system(.title2).weight(.semibold))
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,8 +56,11 @@ struct PeopleView: View {
                 }
             }
         }
+        .background(Color.lilacBg.ignoresSafeArea())
         .navigationTitle("People")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.lilacBg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) { Wordmark() }
             ToolbarItem(placement: .primaryAction) {
@@ -87,6 +97,9 @@ struct PeopleView: View {
         .onAppear {
             guard let id = auth.currentPerson?.id else { return }
             Task { await viewModel.fetch(currentPersonId: id) }
+        }
+        .fullScreenCover(item: $recordingForPerson) { person in
+            RecordFlowView(prefillRecipientName: person.name, prefillRecipientId: person.id)
         }
     }
 
@@ -143,27 +156,9 @@ struct PeopleView: View {
                         .font(.system(.body).weight(.medium))
                         .foregroundColor(.primary)
 
-                    HStack(spacing: 6) {
-                        if person.isReceiving {
-                            NavigationLink(value: PeopleNavDest.receivedGift(giftId: person.receivingGiftId, name: person.name)) {
-                                relationshipTag("their gift to you",
-                                               systemImage: "arrow.down",
-                                               color: .brandPurple)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if person.isGiving {
-                            NavigationLink(value: PeopleNavDest.givingGift(
-                                giftId: person.givingGiftId,
-                                name: person.name,
-                                personId: person.id
-                            )) {
-                                relationshipTag("your gift to them",
-                                               systemImage: "arrow.up",
-                                               color: .brandRose)
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    // Only show the next upcoming date — gift-direction tags moved to Giving tab
+                    if let occ = viewModel.nextOccasionByPersonId[person.id] {
+                        occasionBadge(occ)
                     }
                 }
 
@@ -174,23 +169,128 @@ struct PeopleView: View {
                     .foregroundColor(.secondary)
             }
             .padding(14)
-            .background(Color(.systemBackground))
+            .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .shadow(color: .black.opacity(0.04), radius: 4, x: 0, y: 2)
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - Tag pill
+    // MARK: - Occasion badge (person row inline)
 
-    private func relationshipTag(_ label: String, systemImage: String, color: Color) -> some View {
-        Label(label, systemImage: systemImage)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.1))
-            .clipShape(Capsule())
+    private func occasionBadge(_ occ: UpcomingOccasion) -> some View {
+        Label {
+            Text("\(occ.label) \(occ.relativeTime.lowercased())")
+                .font(.system(size: 11, weight: .medium))
+        } icon: {
+            Image(systemName: occasionIcon(for: occ.label))
+                .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundColor(Color.ink.opacity(0.55))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Color(hex: "EEECEA"))
+        .clipShape(Capsule())
+    }
+
+    /// SF Symbol name keyed to occasion label.
+    private func occasionIcon(for label: String) -> String {
+        switch label.lowercased() {
+        case "birthday":      return "birthday.cake"
+        case "anniversary":   return "heart"
+        case "mother's day":  return "heart.fill"
+        case "father's day":  return "person.fill"
+        default:              return "calendar"
+        }
+    }
+    // MARK: - Coming up strip
+
+    private var comingUpStrip: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Coming up")
+                .font(.system(.caption, weight: .semibold))
+                .foregroundStyle(Color.secondary)
+                .textCase(.uppercase)
+                .kerning(0.6)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(viewModel.upcomingOccasions) { occ in
+                        comingUpCard(occ)
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func comingUpCard(_ occ: UpcomingOccasion) -> some View {
+        let action = cardAction(for: occ.daysUntil)
+        return VStack(alignment: .leading, spacing: 10) {
+            // Avatar + name
+            HStack(spacing: 8) {
+                CachedAvatarView(storagePath: occ.avatarStoragePath, name: occ.personName, size: 34)
+                Text(occ.personName)
+                    .font(.system(.subheadline, weight: .semibold))
+                    .foregroundStyle(Color.ink)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            // Occasion type
+            Text(occ.label)
+                .font(.system(.subheadline, weight: .medium))
+                .foregroundStyle(Color.ink)
+
+            // Relative time
+            Text(occ.relativeTime)
+                .font(.system(.caption, weight: .semibold))
+                .foregroundStyle(Color.brandPurple)
+
+            // Colour-coded action pill
+            Button {
+                recordingForPerson = viewModel.people.first { $0.id == occ.personId }
+            } label: {
+                Text(action.label)
+                    .font(.system(.caption, weight: .semibold))
+                    .foregroundStyle(action.fg)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(action.bg)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(width: 158, alignment: .leading)
+        .frame(minHeight: 158)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.06), radius: 5, x: 0, y: 2)
+    }
+
+    // MARK: - Card action style (colour-coded by proximity)
+
+    private struct CardAction {
+        let label: String
+        let bg: Color
+        let fg: Color
+    }
+
+    /// Imminent (≤7 days): purple "Leave a message".
+    /// Soon (8–30 days): warm peach "Plan something".
+    /// Distant (31+ days): neutral grey "Set reminder".
+    private func cardAction(for daysUntil: Int) -> CardAction {
+        switch daysUntil {
+        case 0..<8:
+            return CardAction(label: "Leave a message", bg: Color.brandPurple,        fg: .white)
+        case 8..<31:
+            return CardAction(label: "Plan something",  bg: Color(hex: "FBF0E6"),     fg: Color(hex: "8B4A1C"))
+        default:
+            return CardAction(label: "Set reminder",    bg: Color(hex: "EEECEA"),     fg: Color.ink.opacity(0.55))
+        }
     }
 }
 

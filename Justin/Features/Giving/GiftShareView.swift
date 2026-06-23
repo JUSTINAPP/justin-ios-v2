@@ -4,6 +4,9 @@ struct GiftShareView: View {
     let recipientName: String
     let shareToken: String?
     let onDone: () -> Void
+    /// When true (post-creation record flow), hides the back arrow so the user
+    /// can't navigate back into the completed preview. Both exits call onDone().
+    var exitToHome: Bool = false
 
     @EnvironmentObject var auth: AuthService
 
@@ -60,6 +63,18 @@ struct GiftShareView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.cream, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        // When shown after gift creation, suppress back navigation into the
+        // completed preview and replace with a Done button that exits to home.
+        .navigationBarBackButtonHidden(exitToHome)
+        .toolbar {
+            if exitToHome {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") { onDone() }
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.brandPurple)
+                }
+            }
+        }
         .onAppear {
             print("[ShareDebug] GiftShareView.onAppear")
             print("[ShareDebug]   shareToken received: \(shareToken ?? "nil")")

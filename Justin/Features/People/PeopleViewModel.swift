@@ -18,12 +18,69 @@ struct PeopleEntry: Identifiable, Hashable {
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
 }
 
+// MARK: - Upcoming occasion model
+
+struct UpcomingOccasion: Identifiable {
+    let id: UUID               // occasion id
+    let personId: UUID
+    let personName: String
+    let avatarStoragePath: String?
+    let label: String
+    let nextDate: Date
+    let daysUntil: Int
+
+    /// Human-friendly relative time, title-cased ("Tomorrow", "In 5 days", "In 2 weeks").
+    var relativeTime: String {
+        switch daysUntil {
+        case 0:    return "Today"
+        case 1:    return "Tomorrow"
+        case 2..<8: return "In \(daysUntil) days"
+        case 8..<31:
+            let w = daysUntil / 7
+            return "In \(w) \(w == 1 ? "week" : "weeks")"
+        default:
+            let m = max(1, daysUntil / 30)
+            return "In \(m) \(m == 1 ? "month" : "months")"
+        }
+    }
+}
+
 // MARK: - ViewModel
 
 @MainActor
 final class PeopleViewModel: ObservableObject {
-    @Published var people: [PeopleEntry] = []
+    @Published var people:               [PeopleEntry]                    = []
+    @Published var upcomingOccasions:    [UpcomingOccasion]               = []   // ≤60 days, for the strip
+    @Published var nextOccasionByPersonId: [UUID: UpcomingOccasion]      = [:]   // soonest per person, for inline list
     @Published var isLoading = false
+
+    // UTC calendar + formatter for date-only occasion values ("yyyy-MM-dd").
+    private static let utcCal: Calendar = {
+        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
+    }()
+    private static let occasionFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale     = Locale(identifier: "en_US_POSIX")
+        f.timeZone   = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    /// Returns the next calendar occurrence of this date's month+day on or after `after`.
+    /// Occasion dates are annually recurring; the stored year is irrelevant for scheduling.
+    private static func nextOccurrence(of date: Date, after refDay: Date) -> Date {
+        let month = utcCal.component(.month, from: date)
+        let day   = utcCal.component(.day,   from: date)
+        let cal   = Calendar.current
+        let year  = cal.component(.year, from: refDay)
+
+        let thisYear = DateComponents(year: year,     month: month, day: day)
+        if let d = cal.date(from: thisYear), cal.startOfDay(for: d) >= cal.startOfDay(for: refDay) {
+            return d
+        }
+        let nextYear = DateComponents(year: year + 1, month: month, day: day)
+        return Calendar.current.date(from: nextYear) ?? date
+    }
 
     func fetch(currentPersonId: UUID) async {
         isLoading = true
@@ -141,6 +198,58 @@ final class PeopleViewModel: ObservableObject {
 
             people = entries.values.sorted { $0.name < $1.name }
             print("[People] loaded \(people.count) people")
+
+            // ── Upcoming occasions ─────────────────────────────────────────────
+            do {
+                struct OccasionRow: Decodable {
+                    let id: UUID; let personId: UUID; let label: String; let date: String
+                    enum CodingKeys: String, CodingKey {
+                        case id, label, date; case personId = "person_id"
+                    }
+                }
+                let rows: [OccasionRow] = try await supabase
+                    .from("occasions")
+                    .select("id, person_id, label, date")
+                    .eq("owner_id", value: currentPersonId.uuidString)
+                    .execute()
+                    .value
+
+                let today  = Calendar.current.startOfDay(for: Date())
+                let cutoff = Calendar.current.date(byAdding: .day, value: 60, to: today)!
+
+                // Compute next occurrence for every occasion, regardless of window.
+                let all: [UpcomingOccasion] = rows.compactMap { row in
+                    guard let stored = Self.occasionFmt.date(from: row.date) else { return nil }
+                    let next  = Self.nextOccurrence(of: stored, after: today)
+                    let days  = Calendar.current.dateComponents(
+                        [.day], from: today, to: Calendar.current.startOfDay(for: next)
+                    ).day ?? 0
+                    return UpcomingOccasion(
+                        id:                row.id,
+                        personId:          row.personId,
+                        personName:        entries[row.personId]?.name ?? "Someone",
+                        avatarStoragePath: entries[row.personId]?.avatarStoragePath,
+                        label:             row.label,
+                        nextDate:          next,
+                        daysUntil:         days
+                    )
+                }.sorted { $0.daysUntil < $1.daysUntil }
+
+                // Strip: only occasions within 60 days.
+                upcomingOccasions = all.filter { $0.daysUntil <= 60 }
+                print("[ComingUp] loaded \(upcomingOccasions.count) upcoming occasions (of \(all.count) total)")
+
+                // Inline list: soonest per person (any window).
+                var nextByPerson: [UUID: UpcomingOccasion] = [:]
+                for occ in all {
+                    if (nextByPerson[occ.personId]?.daysUntil ?? Int.max) > occ.daysUntil {
+                        nextByPerson[occ.personId] = occ
+                    }
+                }
+                nextOccasionByPersonId = nextByPerson
+            } catch {
+                print("[ComingUp] occasions fetch failed (non-fatal): \(error)")
+            }
 
         } catch {
             print("[People] fetch failed: \(error)")

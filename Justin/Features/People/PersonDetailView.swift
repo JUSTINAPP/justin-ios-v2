@@ -9,16 +9,12 @@ struct PersonDetailView: View {
     @EnvironmentObject var auth: AuthService
     @Environment(\.dismiss) private var dismiss  // pops this view in the NavigationStack
 
-    struct LoadedOccasion: Identifiable {
-        let id: UUID
-        var label: String
-        var date: Date
-    }
-
     @State private var phone = ""
     @State private var relationship = ""
     @State private var notes = ""
-    @State private var occasions: [LoadedOccasion] = []
+    @State private var occasions: [OccasionEntry] = []
+    @State private var showOccasionForm = false
+    @State private var editingOccasion:  OccasionEntry? = nil
     @State private var avatarStoragePath: String? = nil
     @State private var isLoading = false
     @State private var showEditPerson = false
@@ -55,7 +51,7 @@ struct PersonDetailView: View {
                     sendMessageSection
                     if isBlocked { blockedSection }
                     if !phone.isEmpty { contactSection }
-                    if !occasions.isEmpty { datesSection }
+                    datesSection
                     if !notes.isEmpty { notesSection }
                     giftsSection
                 }
@@ -122,6 +118,17 @@ struct PersonDetailView: View {
         .onChange(of: avatarPickerItem) { _, item in
             guard let item else { return }
             Task { await uploadAvatar(item: item) }
+        }
+        .sheet(isPresented: $showOccasionForm) {
+            if let ownerId = auth.currentPerson?.id {
+                OccasionFormView(
+                    existing:   editingOccasion,
+                    personId:   person.id,
+                    ownerId:    ownerId,
+                    onSaved:    { Task { await loadPerson() } },
+                    onDeleted:  { Task { await loadPerson() } }
+                )
+            }
         }
         .fullScreenCover(isPresented: $showRecord) {
             RecordFlowView(prefillRecipientName: name, prefillRecipientId: person.id)
@@ -249,12 +256,40 @@ struct PersonDetailView: View {
     private var datesSection: some View {
         Section("Important dates") {
             ForEach(occasions) { occ in
-                HStack {
-                    Text(occ.label)
-                    Spacer()
-                    Text(Self.dayMonthFmt.string(from: occ.date))
-                        .foregroundStyle(.secondary)
+                Button {
+                    editingOccasion = occ
+                    showOccasionForm = true
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(occ.label)
+                                .font(.system(.body))
+                                .foregroundStyle(Color.primary)
+                            Text(Self.dayMonthFmt.string(from: occ.date))
+                                .font(.system(.subheadline))
+                                .foregroundStyle(Color.secondary)
+                        }
+                        Spacer()
+                        if occ.remind {
+                            Image(systemName: "bell")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color.brandPurple.opacity(0.6))
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.secondary)
+                    }
                 }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                editingOccasion = nil
+                showOccasionForm = true
+            } label: {
+                Label("Add a date", systemImage: "plus")
+                    .font(.system(.body))
+                    .foregroundStyle(Color.brandPurple)
             }
         }
     }
@@ -409,20 +444,33 @@ struct PersonDetailView: View {
 
         do {
             struct OccasionRow: Decodable {
-                let id: UUID
-                let label: String
-                let date: String
+                let id:               UUID
+                let label:            String
+                let date:             String
+                let remind:           Bool?
+                let remindDaysBefore: Int?
+                enum CodingKeys: String, CodingKey {
+                    case id, label, date, remind
+                    case remindDaysBefore = "remind_days_before"
+                }
             }
             let rows: [OccasionRow] = try await supabase
                 .from("occasions")
                 .select()
                 .eq("owner_id", value: ownerId.uuidString)
                 .eq("person_id", value: person.id.uuidString)
+                .order("date", ascending: true)
                 .execute()
                 .value
             occasions = rows.compactMap { row in
                 guard let date = Self.isoDateFmt.date(from: row.date) else { return nil }
-                return LoadedOccasion(id: row.id, label: row.label, date: date)
+                return OccasionEntry(
+                    id:               row.id,
+                    label:            row.label,
+                    date:             date,
+                    remind:           row.remind ?? false,
+                    remindDaysBefore: row.remindDaysBefore
+                )
             }
         } catch {
             print("[PersonDetail] occasions load skipped: \(error)")

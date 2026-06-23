@@ -48,7 +48,8 @@ struct RecordFlowView: View {
                         GiftShareView(
                             recipientName: model.recipientName,
                             shareToken: model.savedShareToken,
-                            onDone: { dismiss() }
+                            onDone: { dismiss() },
+                            exitToHome: true
                         )
                     }
                 }
