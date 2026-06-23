@@ -10,6 +10,7 @@ struct PeopleEntry: Identifiable, Hashable {
     var givingGiftId: UUID?    // gift the current user authored TO this person
     var receivingGiftId: UUID? // gift this person authored FOR the current user
     var avatarStoragePath: String? = nil
+    var isBlocked: Bool = false   // true when current user has blocked this person
 
     var isGiving:    Bool { givingGiftId    != nil }
     var isReceiving: Bool { receivingGiftId != nil }
@@ -198,6 +199,28 @@ final class PeopleViewModel: ObservableObject {
 
             people = entries.values.sorted { $0.name < $1.name }
             debugLog("[People] loaded \(people.count) people")
+
+            // ── Block status (marks blocked people for list-row indicator) ─────
+            do {
+                struct BlockRow: Decodable {
+                    let blockedId: UUID
+                    enum CodingKeys: String, CodingKey { case blockedId = "blocked_id" }
+                }
+                let blocks: [BlockRow] = try await supabase
+                    .from("blocks")
+                    .select("blocked_id")
+                    .execute()
+                    .value
+                if !blocks.isEmpty {
+                    let blockedIds = Set(blocks.map(\.blockedId))
+                    people = people.map { entry in
+                        var e = entry; e.isBlocked = blockedIds.contains(entry.id); return e
+                    }
+                    debugLog("[People] \(blockedIds.count) blocked person(s) marked in list")
+                }
+            } catch {
+                debugLog("[People] blocks fetch skipped (non-fatal): \(error)")
+            }
 
             // ── Upcoming occasions ─────────────────────────────────────────────
             do {

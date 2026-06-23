@@ -46,69 +46,29 @@ final class ShelfViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        // Fetch block list with timestamps — non-fatal; empty map = no filtering.
-        // Maps blocked_author_id → when_the_block_was_created.
-        // Future-only rule: a gift is hidden only if it arrived AFTER the block.
-        // Gifts already on the shelf before blocking are never hidden retroactively.
-        var blocksByAuthor: [UUID: Date] = [:]
         do {
-            struct BlockRow: Decodable {
-                let blockedId: UUID
-                let createdAtStr: String?
-                enum CodingKeys: String, CodingKey {
-                    case blockedId    = "blocked_id"
-                    case createdAtStr = "created_at"
-                }
+            // Step 1 — server-side filtered gift list.
+            // get_received_gifts() is a SECURITY DEFINER RPC that joins against
+            // blocks and excludes future gifts from blocked authors before they
+            // ever leave the database.  Client-side filtering is intentionally
+            // removed; all block enforcement happens here in one SQL call.
+            struct RpcParams: Encodable {
+                let pRecipientId: UUID
+                enum CodingKeys: String, CodingKey { case pRecipientId = "p_recipient_id" }
             }
-            let blocks: [BlockRow] = try await supabase
-                .from("blocks")
-                .select("blocked_id, created_at")
+            let rpcRows: [RpcGiftRow] = try await supabase
+                .rpc("get_received_gifts", params: RpcParams(pRecipientId: recipientId))
                 .execute()
                 .value
-            for b in blocks {
-                let blockedAt = b.createdAtStr.flatMap {
-                    ShelfViewModel.isoFull.date(from: $0) ?? ShelfViewModel.isoPlain.date(from: $0)
-                } ?? Date.distantPast
-                blocksByAuthor[b.blockedId] = blockedAt
-            }
-            if !blocksByAuthor.isEmpty {
-                debugLog("[Shelf] \(blocksByAuthor.count) blocked author(s) — future-only filter active")
-            }
-        } catch {
-            debugLog("[Shelf] blocks fetch skipped (non-fatal): \(error)")
-        }
+            debugLog("[Shelf] get_received_gifts returned \(rpcRows.count) gifts (blocked authors excluded server-side)")
 
-        do {
-            // Step 1 — gifts received by this user (includes created_at for block-filter comparison)
-            let gifts: [ReceivedGiftRow] = try await supabase
-                .from("gifts")
-                .select("id, author_id, created_at, people!author_id(display_name)")
-                .eq("recipient_id", value: recipientId.uuidString)
-                .execute()
-                .value
-
-            // Future-only block filter:
-            //   • author not blocked                    → always show
-            //   • author blocked, gift pre-dates block  → keep (gift was there before block)
-            //   • author blocked, gift post-dates block → hide (arrived after block)
-            let visibleGifts: [ReceivedGiftRow]
-            if blocksByAuthor.isEmpty {
-                visibleGifts = gifts
-            } else {
-                visibleGifts = gifts.filter { gift in
-                    guard let blockedAt = blocksByAuthor[gift.authorId] else {
-                        return true // not blocked
-                    }
-                    let giftDate = gift.createdAt ?? Date.distantPast
-                    let keep     = giftDate <= blockedAt
-                    debugLog("[Shelf] gift \(gift.id) | author blocked @ \(blockedAt) | gift created @ \(giftDate) → \(keep ? "KEEP" : "HIDE")")
-                    return keep
-                }
+            let gifts = rpcRows.map {
+                ReceivedGiftRow(id: $0.id, authorId: $0.authorId, fromName: $0.authorName ?? "Someone")
             }
 
-            guard !visibleGifts.isEmpty else {
+            guard !gifts.isEmpty else {
                 sections = ShelfSections()
-                debugLog("[Shelf] loaded 0 visible received messages")
+                debugLog("[Shelf] 0 visible received messages")
                 return
             }
 
@@ -116,12 +76,12 @@ final class ShelfViewModel: ObservableObject {
             let messages: [Message] = try await supabase
                 .from("messages")
                 .select()
-                .in("gift_id", values: visibleGifts.map(\.id.uuidString))
+                .in("gift_id", values: gifts.map(\.id.uuidString))
                 .execute()
                 .value
 
             debugLog("[Shelf] loaded \(messages.count) received messages")
-            sections = organize(messages: messages, gifts: visibleGifts)
+            sections = organize(messages: messages, gifts: gifts)
 
         } catch {
             debugLog("[Shelf] fetch failed: \(error)")
@@ -201,41 +161,26 @@ final class ShelfViewModel: ObservableObject {
         )
     }
 
-    // MARK: - Decodable shapes
+    // MARK: - Internal model (built from RPC response, used by organize())
 
-    struct ReceivedGiftRow: Decodable {
-        let id: UUID
+    struct ReceivedGiftRow {
+        let id:       UUID
         let authorId: UUID
-        let createdAt: Date?      // used for future-only block filter
-        let people: AuthorSummary?
+        let fromName: String
+    }
 
-        var fromName: String { people?.displayName ?? "Someone" }
+    // MARK: - RPC response decoder
+
+    /// Flat response from get_received_gifts() — block filtering already applied server-side.
+    private struct RpcGiftRow: Decodable {
+        let id:         UUID
+        let authorId:   UUID
+        let authorName: String?
 
         enum CodingKeys: String, CodingKey {
             case id
-            case authorId  = "author_id"
-            case createdAt = "created_at"
-            case people
-        }
-
-        // Custom init: Supabase returns timestamptz as an ISO8601 string, not a
-        // number, so the default Date decoding would fail. Parse it explicitly.
-        init(from decoder: Decoder) throws {
-            let c      = try decoder.container(keyedBy: CodingKeys.self)
-            id         = try c.decode(UUID.self, forKey: .id)
-            authorId   = try c.decode(UUID.self, forKey: .authorId)
-            people     = try? c.decodeIfPresent(AuthorSummary.self, forKey: .people)
-            if let s   = try? c.decodeIfPresent(String.self, forKey: .createdAt) {
-                createdAt = ShelfViewModel.isoFull.date(from: s)
-                         ?? ShelfViewModel.isoPlain.date(from: s)
-            } else {
-                createdAt = nil
-            }
-        }
-
-        struct AuthorSummary: Decodable {
-            let displayName: String?
-            enum CodingKeys: String, CodingKey { case displayName = "display_name" }
+            case authorId   = "author_id"
+            case authorName = "author_name"
         }
     }
 }

@@ -98,6 +98,12 @@ struct PeopleView: View {
             guard let id = auth.currentPerson?.id else { return }
             Task { await viewModel.fetch(currentPersonId: id) }
         }
+        // Re-fetch when block/unblock fires (same signal as shelf refresh)
+        // so the blocked badge appears/disappears without navigating away.
+        .onChange(of: auth.needsShelfRefresh) { _, needsRefresh in
+            guard needsRefresh, let id = auth.currentPerson?.id else { return }
+            Task { await viewModel.fetch(currentPersonId: id) }
+        }
         .fullScreenCover(item: $recordingForPerson) { person in
             RecordFlowView(prefillRecipientName: person.name, prefillRecipientId: person.id)
         }
@@ -156,9 +162,11 @@ struct PeopleView: View {
                         .font(.system(.body).weight(.medium))
                         .foregroundColor(.primary)
 
-                    // Only show the next upcoming date — gift-direction tags moved to Giving tab
-                    if let occ = viewModel.nextOccasionByPersonId[person.id] {
-                        occasionBadge(occ)
+                    HStack(spacing: 6) {
+                        if person.isBlocked { blockedBadge }
+                        if let occ = viewModel.nextOccasionByPersonId[person.id] {
+                            occasionBadge(occ)
+                        }
                     }
                 }
 
@@ -174,6 +182,18 @@ struct PeopleView: View {
             .shadow(color: .black.opacity(0.04), radius: 4, x: 0, y: 2)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Blocked badge (person row inline)
+
+    private var blockedBadge: some View {
+        Label("Blocked", systemImage: "hand.raised.fill")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(Color.ink.opacity(0.55))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color(hex: "EEECEA"))
+            .clipShape(Capsule())
     }
 
     // MARK: - Occasion badge (person row inline)

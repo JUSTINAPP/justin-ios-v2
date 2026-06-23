@@ -509,7 +509,9 @@ struct PersonDetailView: View {
                 .rpc("block_person", params: BlockParams(pBlockedId: person.id))
                 .execute()
             isBlocked = true
-            debugLog("[Block] blocked: \(person.id)")
+            debugLog("[Block] blocked \(person.id) — triggering shelf refresh")
+            // Refresh the shelf so this person's gifts disappear immediately.
+            auth.needsShelfRefresh = true
         } catch {
             debugLog("[Block] block failed: \(error)")
         }
@@ -522,7 +524,9 @@ struct PersonDetailView: View {
                 .rpc("unblock_person", params: BlockParams(pBlockedId: person.id))
                 .execute()
             isBlocked = false
-            debugLog("[Block] unblocked: \(person.id)")
+            debugLog("[Block] unblocked \(person.id) — triggering shelf refresh")
+            // Refresh the shelf so this person's gifts reappear immediately.
+            auth.needsShelfRefresh = true
         } catch {
             debugLog("[Block] unblock failed: \(error)")
         }
