@@ -48,8 +48,17 @@ struct AddPersonView: View {
 
     private var isEditing: Bool { personId != nil }
 
+    /// Phone is required when saving a person to the People list.
+    /// The phone is the convergence anchor — without it, gifts sent to this
+    /// placeholder are orphaned when the person later signs up with Justin.
+    /// Exception: verified people in edit mode already have a locked phone.
+    private var hasValidPhone: Bool {
+        if isVerifiedPerson && isEditing { return true }   // read-only, already on file
+        return phone.filter(\.isNumber).count >= 7         // 7+ digits covers all real numbers
+    }
+
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && !isSaving
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && !isSaving && hasValidPhone
     }
 
     private static let dayMonthFmt: DateFormatter = {
@@ -164,7 +173,6 @@ struct AddPersonView: View {
         Section {
             if isVerifiedPerson && isEditing {
                 // Verified person's phone is their account identity — show read-only.
-                // All override fields (name, relationship, notes) remain editable above.
                 HStack {
                     Text(formattedPhone.isEmpty ? phone : formattedPhone)
                         .foregroundStyle(.primary)
@@ -178,11 +186,25 @@ struct AddPersonView: View {
                     .listRowInsets(EdgeInsets())
             }
         } header: {
-            Text("Phone number")
+            HStack(spacing: 6) {
+                Text("Phone number")
+                // Show a gentle "Required" badge until a valid number is entered.
+                if !isVerifiedPerson && !hasValidPhone {
+                    Text("Required")
+                        .font(.system(.caption2, weight: .semibold))
+                        .foregroundStyle(Color.brandRose)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.brandRose.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+            }
         } footer: {
-            Text(isVerifiedPerson && isEditing
-                 ? "This is their Justin account number and can't be changed here."
-                 : "Helps gifts reach them later. Only you can see this.")
+            if isVerifiedPerson && isEditing {
+                Text("This is their Justin account number and can't be changed here.")
+            } else {
+                Text("A phone number lets your gifts reach them when they join Justin. Only you can see it.")
+            }
         }
     }
 
