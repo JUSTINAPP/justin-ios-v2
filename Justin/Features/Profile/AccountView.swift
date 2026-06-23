@@ -182,15 +182,28 @@ struct AccountView: View {
         // No defer reset — we sign out on success (view goes away) or reset on failure.
 
         do {
+            // Step 1 — delete account data (RPC)
             struct NoParams: Encodable {}
             try await supabase
                 .rpc("delete_my_account_data", params: NoParams())
                 .execute()
-            debugLog("[DeleteAccount] RPC succeeded — signing out")
+            debugLog("[DeleteAccount] data RPC done")
+
+            // Step 2 — delete auth identity via Edge Function (non-fatal)
+            // Data is already gone so we sign out regardless of whether this succeeds.
+            struct EdgeResult: Decodable { let success: Bool?; let error: String? }
+            do {
+                let result: EdgeResult = try await supabase.functions.invoke("delete-auth-user")
+                debugLog("[DeleteAccount] auth-user function result: success=\(result.success ?? false) error=\(result.error ?? "none")")
+            } catch {
+                debugLog("[DeleteAccount] auth-user function error (non-fatal, signing out anyway): \(error)")
+            }
+
+            // Step 3 — sign out
+            debugLog("[DeleteAccount] signed out")
             await auth.signOut()
-            // auth.signOut() transitions state to .signedOut, unwinding to the welcome screen.
         } catch {
-            debugLog("[DeleteAccount] RPC failed: \(error)")
+            debugLog("[DeleteAccount] data RPC failed: \(error)")
             if let pgErr = error as? PostgrestError {
                 debugLog("[DeleteAccount] PostgrestError code=\(pgErr.code ?? "nil") message=\(pgErr.message)")
             }
