@@ -9,6 +9,7 @@ import Supabase
 struct GiftSaveResult {
     let giftId: UUID?
     let shareToken: String?
+    let claimCode: String?
     /// True when the recipient has a verified Justin account — message lands on their
     /// shelf in-app and no share link is needed. False for non-users (share screen shown).
     let recipientIsVerified: Bool
@@ -120,32 +121,27 @@ final class GiftSaveService {
                 debugLog("[Save] caption saved")
             }
 
-            // Fetch the gift's id and share_token via the message FK — non-fatal.
+            // Fetch the gift's id, share_token, and claim_code via the message FK — non-fatal.
             var giftId: UUID? = nil
             var shareToken: String? = nil
+            var claimCode: String? = nil
             do {
                 let rows: [MessageGiftRow] = try await supabase
                     .from("messages")
-                    .select("gift_id, gifts(id, share_token)")
+                    .select("gift_id, gifts(id, share_token, claim_code)")
                     .eq("id", value: messageId.uuidString)
                     .limit(1)
                     .execute()
                     .value
                 giftId     = rows.first?.gifts.id
                 shareToken = rows.first?.gifts.shareToken
-                // These two lines are the key diagnostic: on a second message to the
-                // same non-verified recipient they should differ from the first save.
-                debugLog("[Save] ── gift/token for this message ──────────────────────────")
-                debugLog("[Save] messageId:   \(messageId)")
-                debugLog("[Save] giftId:      \(giftId?.uuidString ?? "nil")")
-                debugLog("[Save] shareToken:  \(shareToken ?? "nil")")
-                debugLog("[Save] isVerified:  \(recipientIsVerified)")
-                debugLog("[Save] ────────────────────────────────────────────────────────")
+                claimCode  = rows.first?.gifts.claimCode
+                debugLog("[Save] giftId=\(giftId?.uuidString ?? "nil") shareToken=\(shareToken ?? "nil") claimCode=\(claimCode ?? "nil")")
             } catch {
                 debugLog("[Save] share_token fetch failed (migration needed?): \(error)")
             }
 
-            return GiftSaveResult(giftId: giftId, shareToken: shareToken, recipientIsVerified: recipientIsVerified)
+            return GiftSaveResult(giftId: giftId, shareToken: shareToken, claimCode: claimCode, recipientIsVerified: recipientIsVerified)
 
         } catch {
             debugLog("[Save] gift save failed: \(error)")
@@ -167,9 +163,11 @@ final class GiftSaveService {
         struct GiftTokenInfo: Codable {
             let id: UUID
             let shareToken: String?
+            let claimCode: String?
             enum CodingKeys: String, CodingKey {
                 case id
                 case shareToken = "share_token"
+                case claimCode  = "claim_code"
             }
         }
 

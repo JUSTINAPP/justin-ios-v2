@@ -3,6 +3,7 @@ import SwiftUI
 struct GiftShareView: View {
     let recipientName: String
     let shareToken: String?
+    var claimCode: String? = nil
     let onDone: () -> Void
     /// When true (post-creation record flow), hides the back arrow so the user
     /// can't navigate back into the completed preview. Both exits call onDone().
@@ -10,8 +11,9 @@ struct GiftShareView: View {
 
     @EnvironmentObject var auth: AuthService
 
-    @State private var shareMessage = ""
-    @State private var didCopy = false
+    @State private var shareMessage  = ""
+    @State private var didCopy       = false
+    @State private var didCopyCode   = false
 
     private var linkString: String {
         guard let token = shareToken else { return "https://justinapp.com.au/g/…" }
@@ -51,6 +53,8 @@ struct GiftShareView: View {
                         .foregroundStyle(Color.ink.opacity(0.45))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
+
+                    if claimCode != nil { claimCodeSection }
 
                     doneButton
                 }
@@ -162,6 +166,39 @@ struct GiftShareView: View {
         }
     }
 
+    /// Quiet fallback — the code is only needed if the recipient can't open the
+    /// link, so it stays small and clearly secondary to the share action above.
+    private var claimCodeSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                UIPasteboard.general.string = claimCode
+                withAnimation(.easeInOut(duration: 0.15)) { didCopyCode = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    withAnimation(.easeInOut(duration: 0.15)) { didCopyCode = false }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Code:")
+                        .font(.system(.caption))
+                        .foregroundStyle(Color.ink.opacity(0.35))
+                    Text(claimCode ?? "")
+                        .font(.system(.caption, design: .monospaced, weight: .semibold))
+                        .foregroundStyle(Color.ink.opacity(0.55))
+                        .tracking(1)
+                    Image(systemName: didCopyCode ? "checkmark.circle.fill" : "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(didCopyCode ? Color.brandPurple : Color.ink.opacity(0.3))
+                        .animation(.easeInOut(duration: 0.15), value: didCopyCode)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Text("If \(recipientName) can't open the link, they can enter this code in the app instead.")
+                .font(.system(.caption2))
+                .foregroundStyle(Color.ink.opacity(0.35))
+        }
+    }
+
     private var doneButton: some View {
         Button(action: onDone) {
             Text("Done")
@@ -182,7 +219,7 @@ struct GiftShareView: View {
 
     private func composeMessageIfNeeded() {
         guard shareMessage.isEmpty else { return }
-        shareMessage = "Hi \(recipientName), it's \(senderFirstName) — I left you a little something. Have a listen 💛\n\(linkString)"
+        shareMessage = "Hi \(recipientName), it's \(senderFirstName), I left you a little something. Have a listen 💛\n\(linkString)"
     }
 }
 

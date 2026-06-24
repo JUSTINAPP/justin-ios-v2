@@ -6,6 +6,7 @@ struct ReceivedGiftDetailView: View {
     let fromName: String
 
     @State private var messages: [Message] = []
+    @State private var claimCode: String? = nil
     @State private var isLoading = false
     @State private var playingMessage: Message?
 
@@ -32,28 +33,56 @@ struct ReceivedGiftDetailView: View {
                 fromName: fromName
             )
         }
-        .task { await loadMessages() }
+        .task {
+            await loadMessages()
+            await loadClaimCode()
+        }
     }
 
     // MARK: - Header
 
     private var headerSection: some View {
         Section {
-            HStack(spacing: 16) {
-                InitialsAvatar(name: fromName, size: 56)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("From \(fromName)")
-                        .font(.system(.title3).weight(.semibold))
-                    Text("\(messages.count) message\(messages.count == 1 ? "" : "s")")
-                        .font(.system(.subheadline))
-                        .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 16) {
+                    InitialsAvatar(name: fromName, size: 56)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("From \(fromName)")
+                            .font(.system(.title3).weight(.semibold))
+                        Text("\(messages.count) message\(messages.count == 1 ? "" : "s")")
+                            .font(.system(.subheadline))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
                 }
-                Spacer()
+
+                if let claimCode {
+                    claimCodeBadge(claimCode)
+                }
             }
             .padding(.vertical, 6)
         }
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
+    }
+
+    /// Lets the recipient reference or re-enter their gift code elsewhere in the app.
+    private func claimCodeBadge(_ code: String) -> some View {
+        HStack(spacing: 12) {
+            Text("Gift code")
+                .font(.system(.caption, weight: .semibold))
+                .foregroundStyle(Color.ink.opacity(0.4))
+                .textCase(.uppercase)
+                .kerning(0.5)
+            Spacer()
+            Text(code)
+                .font(.system(.body, design: .monospaced, weight: .bold))
+                .foregroundStyle(Color.ink)
+                .tracking(1.5)
+        }
+        .padding(14)
+        .background(Color(.systemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Messages
@@ -156,6 +185,27 @@ struct ReceivedGiftDetailView: View {
             debugLog("[ReceivedGiftDetail] loaded \(rows.count) messages from \(fromName)")
         } catch {
             debugLog("[ReceivedGiftDetail] fetch failed: \(error)")
+        }
+    }
+
+    private struct GiftCodeRow: Codable {
+        let claimCode: String?
+        enum CodingKeys: String, CodingKey { case claimCode = "claim_code" }
+    }
+
+    private func loadClaimCode() async {
+        guard let giftId else { return }
+        do {
+            let rows: [GiftCodeRow] = try await supabase
+                .from("gifts")
+                .select("claim_code")
+                .eq("id", value: giftId.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            claimCode = rows.first?.claimCode
+        } catch {
+            debugLog("[ReceivedGiftDetail] claim_code fetch failed: \(error)")
         }
     }
 }

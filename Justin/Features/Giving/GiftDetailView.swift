@@ -13,6 +13,7 @@ struct GiftDetailView: View {
     @State private var showRecord = false
     @State private var showShare = false
     @State private var shareToken: String? = nil
+    @State private var claimCode: String? = nil
     @State private var messageToDelete: Message?
     @State private var showDeleteConfirm = false
     @State private var playingMessage: Message? = nil
@@ -103,6 +104,7 @@ struct GiftDetailView: View {
                 GiftShareView(
                     recipientName: recipientName,
                     shareToken: shareToken,
+                    claimCode: claimCode,
                     onDone: { showShare = false }
                 )
             }
@@ -294,7 +296,11 @@ struct GiftDetailView: View {
 
     private struct GiftTokenRow: Codable {
         let shareToken: String?
-        enum CodingKeys: String, CodingKey { case shareToken = "share_token" }
+        let claimCode: String?
+        enum CodingKeys: String, CodingKey {
+            case shareToken = "share_token"
+            case claimCode  = "claim_code"
+        }
     }
 
     private func loadMessages() async {
@@ -319,13 +325,14 @@ struct GiftDetailView: View {
         do {
             let rows: [GiftTokenRow] = try await supabase
                 .from("gifts")
-                .select("share_token")
+                .select("share_token, claim_code")
                 .eq("id", value: giftId.uuidString)
                 .limit(1)
                 .execute()
                 .value
             shareToken = rows.first?.shareToken
-            debugLog("[ShareDebug] GiftDetailView loaded shareToken: \(shareToken ?? "nil") for giftId: \(giftId.uuidString)")
+            claimCode  = rows.first?.claimCode
+            debugLog("[ShareDebug] GiftDetailView loaded shareToken: \(shareToken ?? "nil") claimCode: \(claimCode ?? "nil") for giftId: \(giftId.uuidString)")
         } catch {
             debugLog("[GiftDetail] share_token fetch failed: \(error)")
         }

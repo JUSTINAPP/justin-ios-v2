@@ -5,6 +5,9 @@ import Supabase
 struct ProfileView: View {
     @EnvironmentObject var auth: AuthService
     @State private var showSignOutConfirm = false
+    @State private var showPrivacy        = false
+
+    private let privacyURL = URL(string: "https://justinapp.com.au/privacy")!
 
     // Avatar
     @State private var pickerItem: PhotosPickerItem?
@@ -52,6 +55,18 @@ struct ProfileView: View {
                 NavigationLink(destination: SafetyPrivacyView()) {
                     Text("Safety & privacy")
                 }
+                Button {
+                    showPrivacy = true
+                } label: {
+                    HStack {
+                        Text("Privacy Policy")
+                            .foregroundStyle(Color.primary)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
             }
 
             // Sign out — destructive, confirmation required
@@ -76,6 +91,9 @@ struct ProfileView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You'll need your phone number to sign back in.")
+        }
+        .sheet(isPresented: $showPrivacy) {
+            SafariView(url: privacyURL).ignoresSafeArea()
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }

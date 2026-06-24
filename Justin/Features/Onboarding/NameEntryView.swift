@@ -2,8 +2,11 @@ import SwiftUI
 
 struct NameEntryView: View {
     @EnvironmentObject var auth: AuthService
-    @State private var name = ""
+    @State private var name       = ""
+    @State private var showPrivacy = false
     @FocusState private var focused: Bool
+
+    private let privacyURL = URL(string: "https://justinapp.com.au/privacy")!
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
     private var canContinue: Bool { !trimmed.isEmpty && !auth.isLoading }
@@ -44,27 +47,43 @@ struct NameEntryView: View {
             .padding(.bottom, 120)
         }
         .safeAreaInset(edge: .bottom) {
-            Button {
-                Task { await auth.saveName(trimmed) }
-            } label: {
-                Group {
-                    if auth.isLoading {
-                        ProgressView().tint(.white)
-                    } else {
-                        Text("Continue")
-                            .font(.system(.body, weight: .semibold))
-                            .foregroundStyle(Color.white)
+            VStack(spacing: 0) {
+                Button {
+                    Task { await auth.saveName(trimmed) }
+                } label: {
+                    Group {
+                        if auth.isLoading {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text("Continue")
+                                .font(.system(.body, weight: .semibold))
+                                .foregroundStyle(Color.white)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(canContinue ? Color.brandPurple : Color.secondary.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(canContinue ? Color.brandPurple : Color.secondary.opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .disabled(!canContinue)
+                .padding(.horizontal, 28)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+                // Privacy notice
+                HStack(spacing: 4) {
+                    Text("By continuing, you agree to our")
+                        .foregroundStyle(Color.secondary)
+                    Button("Privacy Policy") { showPrivacy = true }
+                        .foregroundStyle(Color.brandPurple)
+                }
+                .font(.system(.caption))
+                .padding(.bottom, 16)
             }
-            .disabled(!canContinue)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 12)
             .background(.regularMaterial)
+        }
+        .sheet(isPresented: $showPrivacy) {
+            SafariView(url: privacyURL).ignoresSafeArea()
         }
         .onAppear { focused = true }
     }

@@ -48,6 +48,7 @@ struct RecordFlowView: View {
                         GiftShareView(
                             recipientName: model.recipientName,
                             shareToken: model.savedShareToken,
+                            claimCode: model.savedClaimCode,
                             onDone: { dismiss() },
                             exitToHome: true
                         )
@@ -854,7 +855,7 @@ struct RecordStep5PreviewView: View {
                                     .foregroundStyle(.white)
                             }
                         } else {
-                            Text("Add to gift")
+                            Text("Send")
                                 .font(.system(.body).weight(.semibold))
                                 .foregroundStyle(.white)
                         }
@@ -899,6 +900,7 @@ struct RecordStep5PreviewView: View {
 
             model.savedGiftId     = result.giftId
             model.savedShareToken = result.shareToken
+            model.savedClaimCode  = result.claimCode
 
             debugLog("[ShareDebug] saveAndFinish — model.savedShareToken AFTER set: \(model.savedShareToken ?? "nil")")
 

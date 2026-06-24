@@ -26,6 +26,7 @@ final class RecordFlowModel: ObservableObject {
     // Set after a successful save — used by the share screen
     @Published var savedGiftId: UUID? = nil
     @Published var savedShareToken: String? = nil
+    @Published var savedClaimCode: String? = nil
 
     var hasRecording: Bool { audioURL != nil }
     var hasPhotos: Bool { !selectedImages.isEmpty }

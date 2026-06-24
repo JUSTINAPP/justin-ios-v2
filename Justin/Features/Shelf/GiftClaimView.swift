@@ -11,16 +11,21 @@ struct GiftClaimView: View {
     @EnvironmentObject var auth: AuthService
     @Environment(\.dismiss) private var dismiss
 
-    @State private var code      = ""
+    /// The 4 distinctive characters the user types (e.g. "58X3").
+    /// The "JUSTIN-" prefix is shown as a fixed label, not typed.
+    @State private var shortCode = ""
     @State private var isLoading = false
     @State private var message: ClaimMessage? = nil
 
+    /// Full code sent to the RPC — always "JUSTIN-" + uppercased shortCode.
     private var trimmed: String {
-        code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        "JUSTIN-" + shortCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 
     private var canSubmit: Bool {
-        !trimmed.isEmpty && !isLoading && message?.isSuccess != true
+        !shortCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isLoading
+            && message?.isSuccess != true
     }
 
     var body: some View {
@@ -36,17 +41,53 @@ struct GiftClaimView: View {
                         .foregroundStyle(Color.secondary)
                 }
 
-                TextField("JUSTIN-XXXX", text: $code)
-                    .textFieldStyle(.plain)
-                    .font(.system(.body, design: .monospaced))
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .onSubmit { if canSubmit { Task { await claim() } } }
-                    .padding(14)
-                    .background(Color(.systemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .disabled(message?.isSuccess == true)
+                // Fixed "JUSTIN-" prefix + 4-char input so user only types the short code.
+                // Both halves read as equally prominent, dark text.
+                HStack(spacing: 0) {
+                    Text("JUSTIN-")
+                        .font(.system(.body, design: .monospaced, weight: .bold))
+                        .foregroundStyle(Color.ink)
+                        .padding(.leading, 14)
+
+                    TextField("XXXX", text: $shortCode)
+                        .textFieldStyle(.plain)
+                        .font(.system(.body, design: .monospaced, weight: .bold))
+                        .foregroundStyle(Color.ink)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit { if canSubmit { Task { await claim() } } }
+                        .onChange(of: shortCode) { _, val in
+                            // Uppercase and cap at 4 chars
+                            let clean = String(val.uppercased().prefix(4))
+                            if clean != val { shortCode = clean }
+                        }
+                        .padding(.vertical, 14)
+                        .padding(.trailing, 14)
+                        .disabled(message?.isSuccess == true)
+                }
+                .background(Color(.systemFill))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                // Submit sits directly below the code entry, not in the toolbar.
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else if message?.isSuccess != true {
+                    Button {
+                        Task { await claim() }
+                    } label: {
+                        Text("Find gift")
+                            .font(.system(.body).weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(canSubmit ? Color.brandPurple : Color.secondary.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSubmit)
+                }
 
                 if let msg = message {
                     HStack(spacing: 8) {
@@ -86,17 +127,6 @@ struct GiftClaimView: View {
                     Button(message?.isSuccess == true ? "Done" : "Skip") {
                         if message?.isSuccess == true { onClaimed() }
                         dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isLoading {
-                        ProgressView()
-                    } else if message?.isSuccess != true {
-                        Button("Find gift") {
-                            Task { await claim() }
-                        }
-                        .disabled(!canSubmit)
-                        .fontWeight(.semibold)
                     }
                 }
             }
